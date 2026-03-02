@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Facturation en masse du social</title>
+    <link rel="icon" type="image/svg+xml" href="logo.svg">
+
+    <!-- Google Fonts: Fustat -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fustat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <div class="background-blobs">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+        <div class="blob blob-3"></div>
+    </div>
+
+    <!-- Écran de connexion (Auth) -->
+    <div id="authContainer" class="auth-overlay">
+        <div class="auth-box glass-panel">
+            <div class="logo-icon" style="margin: 0 auto 1rem auto; width: 150px; height: 150px;">
+                <img src="Logo_theoma_blanc.png" alt="Theoma Logo">
+            </div>
+            <h2 style="text-align: center; margin-bottom: 0.5rem;">Connexion</h2>
+            <p style="text-align: center; color: var(--color-text-muted); margin-bottom: 2rem; font-size: 0.9rem;">
+                Veuillez vous identifier pour accéder à la facturation</p>
+
+            <div style="display: flex; justify-content: center; margin-bottom: 1rem;">
+                <button type="button" class="btn btn-primary" id="loginBtn"
+                    style="display: flex; align-items: center; gap: 10px; width: auto; padding: 12px 24px;">
+                    <i class="fa-brands fa-microsoft" style="font-size: 1.2rem;"></i>
+                    Se connecter avec Microsoft
+                </button>
+            </div>
+            <div id="loginError" class="login-error hidden">Identifiants invalides.</div>
+        </div>
+    </div>
+
+    <!-- Application Principale (Cachée par défaut) -->
+    <div class="layout-wrapper hidden" id="appLayout">
+        <!-- Barre de Navigation Supérieure -->
+        <div class="top-navbar"
+            style="display: flex; justify-content: space-between; align-items: center; padding: 20px 40px; width: 100%; box-sizing: border-box; position: absolute; top: 0; left: 0; right: 0;">
+
+            <!-- Logo Top Left -->
+            <div class="navbar-logo">
+                <img src="Logo_theoma_blanc.png" alt="Theoma Logo" style="height: 45px; width: auto; display: block;">
+            </div>
+
+            <!-- Profile Top Right -->
+            <div class="user-profile" style="display: flex; align-items: center; gap: 15px;">
+                <div class="user-status" style="display: flex; align-items: center; gap: 8px;">
+                    <span class="status-dot"></span>
+                    <span id="userEmailDisplay"
+                        style="font-size: 0.9rem; color: var(--color-text); opacity: 0.9;"></span>
+                </div>
+                <!-- Déconnexion -->
+                <button id="logoutBtn" class="btn btn-secondary" style="padding: 6px 12px; font-size: 0.8rem;">
+                    <i class="fa-solid fa-sign-out-alt"></i> Déconnexion
+                </button>
+            </div>
+        </div>
+
+        <header class="app-header" style="margin-top: 60px;">
+            <div class="logo-area" style="text-align: center; width: 100%; display: flex; justify-content: center;">
+                <h1>Facturation en masse <span class="highlight">du social</span></h1>
+            </div>
+        </header>
+
+        <main class="app-container glass-panel">
+            <div class="layout-content-split">
+                <!-- Left: Form -->
+                <section class="content-area">
+                    <div class="welcome-message">
+                        <div class="header-with-action" style="display: flex; flex-direction: column; gap: 1rem;">
+                            <div>
+                                <h2>Nouvelle Facturation</h2>
+                                <p>Saisissez les éléments ou importez un Excel.</p>
+                            </div>
+                            <div class="import-actions drop-zone" id="dropZone">
+                                <input type="file" id="excelInput" accept=".xls,.xlsx" hidden>
+                                <div class="drop-zone-content">
+                                    <i class="fa-solid fa-file-excel drop-icon"></i>
+                                    <span class="drop-text">Glissez-déposez un fichier Excel ici ou <strong>cliquez pour
+                                            importer</strong></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <form id="invoiceForm" class="invoice-form">
+                        <!-- Client Selection -->
+                        <div class="form-group">
+                            <label for="clientSelect">Client</label>
+                            <div class="select-wrapper">
+                                <select id="clientSelect">
+                                    <option value="" disabled selected>Sélectionner un client...</option>
+                                    <!-- Populated by JS -->
+                                </select>
+                                <i class="fa-solid fa-chevron-down"></i>
+                            </div>
+                        </div>
+
+                        <!-- Product Selection -->
+                        <div class="form-group" id="productSelectionArea"
+                            style="opacity: 0.5; pointer-events: none; position: relative;">
+                            <label for="productSearch">Prestations / Produits à facturer</label>
+                            <div class="searchable-dropdown" id="productDropdown">
+                                <input type="text" id="productSearch"
+                                    placeholder="Rechercher ou sélectionner un produit..." autocomplete="off">
+                                <i class="fa-solid fa-search search-icon"
+                                    style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); pointer-events: none;"></i>
+                                <div class="dropdown-list hidden" id="productDropdownList">
+                                    <!-- Options populées en JS -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Lignes sélectionnées pour saisie des quantités -->
+                        <div class="selected-products-list hidden" id="selectedProductsList">
+                            <label>Détails des prestations sélectionnées</label>
+                            <!-- Lignes injectées ici -->
+                        </div>
+
+                        <!-- Date de prestation -->
+                        <div class="form-group" style="margin-top: var(--spacing-md);">
+                            <label for="dateInput">Date de prestation (globale)</label>
+                            <input type="date" id="dateInput" required>
+                        </div>
+
+                        <!-- Add Action -->
+                        <div class="form-actions add-row">
+                            <button type="button" class="btn btn-secondary" id="addBtn" disabled>
+                                <i class="fa-solid fa-plus"></i>
+                                Ajouter la ligne
+                            </button>
+                            <div id="linePriceDisplay" class="line-price-preview hidden">
+                                <span class="label">Prix unitaire:</span>
+                                <span class="value">-- €</span>
+                                <span class="tag">Standard</span>
+                            </div>
+                        </div>
+
+                        <!-- Global Actions -->
+                        <div class="form-actions global-actions">
+                            <button type="submit" class="btn btn-primary" id="submitBtn" disabled>
+                                <i class="fa-solid fa-paper-plane"></i>
+                                Générer les brouillons de facture sur Pennylane
+                            </button>
+                        </div>
+                    </form>
+                </section>
+
+                <!-- Right: Detailed Preview (Hidden by default, shown when items exist) -->
+                <aside class="preview-sidebar hidden" id="itemsContainer">
+                    <div class="sidebar-header">
+                        <h3 style="margin: 0; margin-bottom: 0.25rem;">Prévue de Facturation</h3>
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.75rem;">
+                            <p id="itemCountDisplay"
+                                style="margin: 0; font-size: 0.85rem; color: var(--color-text-muted);">
+                                0 prestation(s)</p>
+                        </div>
+
+                        <!-- Search & Sort Controls -->
+                        <div class="preview-controls"
+                            style="display: flex; gap: 0.5rem; align-items: stretch; margin-bottom: 0.5rem;">
+                            <div class="search-wrapper" style="flex: 1; position: relative; display: flex;">
+                                <input type="text" id="previewSearchInput" placeholder="Rechercher un client..."
+                                    class="form-control"
+                                    style="width: 100%; padding-left: 2.2rem; font-size: 0.85rem; background: var(--color-bg-secondary); border: 1px solid var(--color-border); border-radius: var(--radius-md); color: var(--color-text);">
+                                <i class="fa-solid fa-search"
+                                    style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.85rem;"></i>
+                            </div>
+                            <button type="button" id="sortPreviewBtn" class="btn btn-secondary" title="Trier de A à Z"
+                                style="padding: 0; width: 38px; flex-shrink: 0; display: flex; justify-content: center; align-items: center; border-radius: var(--radius-md);">
+                                <i class="fa-solid fa-arrow-down-a-z"></i>
+                            </button>
+                        </div>
+
+                        <div style="text-align: right; margin-top: 0.5rem; margin-bottom: 0; padding-right: 0.25rem;">
+                            <button type="button" id="toggleAllBtn" title="Tout développer / réduire"
+                                style="background: transparent; border: none; font-size: 0.8rem; font-weight: 500; font-family: var(--font-body); color: var(--color-text-main); text-decoration: underline; cursor: pointer; padding: 0; width: auto; display: inline-block;">
+                                Tout développer
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="scroll-area">
+                        <ul id="invoiceList" class="detailed-invoice-list">
+                            <!-- Items will be injected here -->
+                        </ul>
+                    </div>
+
+                    <div class="invoice-total">
+                        <span>Total Global HT</span>
+                        <span id="grandTotalDisplay">0,00 €</span>
+                    </div>
+                </aside>
+            </div>
+        </main>
+    </div>
+
+    <div id="toast" class="toast hidden">
+        <i class="fa-solid fa-circle-check"></i>
+        <span>Facture envoyée avec succès !</span>
+    </div>
+
+    <!-- Custom Modal -->
+    <div id="customModal" class="modal-overlay hidden">
+        <div class="modal-content glass-panel">
+            <div class="modal-header">
+                <i class="fa-solid fa-circle-info"></i>
+                <h3 id="modalTitle">Information</h3>
+            </div>
+            <div class="modal-body">
+                <p id="modalMessage"></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" id="modalCloseBtn">
+                    Compris
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Supabase Client & Env Loader -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="env-loader.js"></script>
+    <script src="app.js"></script>
+</body>
+
+</html>

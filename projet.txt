@@ -1,0 +1,36 @@
+
+🎯️ Objectifs
+Digitaliser la saisie des factures pour supprimer l'usage d'Excel, automatiser le mapping vers Pennylane et garantir une tarification client 360° personnalisée.
+
+1. Architecture Technique
+
+Le système repose sur une stack moderne et agile :
+
+. Front-end : Google Antigravity (Interface de saisie dynamique et réactive).
+. Base de Données : Supabase (Gestion du référentiel clients, produits et prix).
+. Moteur d'Automation : n8n / API Pennylane (Transformation et injection des données).
+
+2. Modèle de Données (Supabase)
+
+Pour assurer un accompagnement personnalisé, nous structurons les données en trois tables :
+
+. clients : Contient les informations d'identification des clients.
+. produits : Catalogue des services et produits de Theoma.
+. referentiel_prix : Table de jointure qui définit le prix spécifique pour chaque duo Client/Produit.
+=> Si aucune entrée n'existe dans cette table, le système applique le prix catalogue par défaut.
+
+3. Processus Utilisateur (User Flow)
+
+. Connexion : La collaboratrice accède à l'interface faite avec Antigravity.
+. Saisie : 
+=> Sélection du client (Liste synchronisée).
+=> Sélection du produit (Le prix s'affiche automatiquement via la base de données).
+=> Validation des quantités et de la date.
+. Contrôle Interne : Le système vérifie la conformité des données pour garantir la transparence et la fiabilité financière.
+. Injection : Un clic sur "Envoyer" déclenche l'API Pennylane. La facture apparaît instantanément en brouillon dans l'outil comptable.
+
+4. Avantages Stratégiques pour Theoma
+
+. Réactivité maximale : Suppression des délais liés aux imports manuels de fichiers CSV et du temps de saisis sur les différents fichiers Excel.
+. Optimisation des performances : Gain de productivité substantiel pour l'équipe administrative.
+. Digitalisation : Alignement avec notre vision de la gestion d'entreprise moderne.

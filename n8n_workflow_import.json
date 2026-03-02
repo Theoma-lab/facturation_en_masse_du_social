@@ -1,0 +1,239 @@
+{
+    "name": "Import Pennylane to Supabase",
+    "nodes": [
+        {
+            "parameters": {},
+            "name": "Start",
+            "type": "n8n-nodes-base.start",
+            "typeVersion": 1,
+            "position": [
+                250,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "url": "https://pennylane.com/api/v1/clients",
+                "authentication": "genericCredentialType",
+                "genericAuthType": "httpHeaderAuth",
+                "options": {}
+            },
+            "name": "Get Clients (Pennylane)",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 3,
+            "position": [
+                450,
+                200
+            ],
+            "notes": "Récupère les clients depuis l'API Pennylane"
+        },
+        {
+            "parameters": {
+                "url": "=YOUR_SUPABASE_URL/rest/v1/clients?on_conflict=pennylane_id",
+                "method": "POST",
+                "authentication": "genericCredentialType",
+                "genericAuthType": "httpHeaderAuth",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "Prefer",
+                            "value": "resolution=merge-duplicates"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "pennylane_id",
+                            "value": "={{$json[\"id\"]}}"
+                        },
+                        {
+                            "name": "name",
+                            "value": "={{$json[\"name\"]}}"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "name": "Upsert Client (Supabase)",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 3,
+            "position": [
+                850,
+                200
+            ],
+            "notes": "Insert ou Update le client via HTTP (Header: Prefer: resolution=merge-duplicates)"
+        },
+        {
+            "parameters": {
+                "url": "https://pennylane.com/api/v1/products",
+                "authentication": "genericCredentialType",
+                "genericAuthType": "httpHeaderAuth",
+                "options": {}
+            },
+            "name": "Get Products (Pennylane)",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 3,
+            "position": [
+                450,
+                81
+            ],
+            "notes": "Récupère les produits depuis l'API Pennylane"
+        },
+        {
+            "parameters": {
+                "url": "=YOUR_SUPABASE_URL/rest/v1/products?on_conflict=pennylane_id",
+                "method": "POST",
+                "authentication": "genericCredentialType",
+                "genericAuthType": "httpHeaderAuth",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "Prefer",
+                            "value": "resolution=merge-duplicates, return=representation"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "pennylane_id",
+                            "value": "={{$json[\"id\"]}}"
+                        },
+                        {
+                            "name": "name",
+                            "value": "={{$json[\"label\"]}}"
+                        },
+                        {
+                            "name": "default_price",
+                            "value": "={{$json[\"price\"]}}"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "name": "Upsert Product (Supabase)",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 3,
+            "position": [
+                850,
+                400
+            ],
+            "notes": "Insert ou Update le produit via HTTP"
+        },
+        {
+            "parameters": {
+                "batchSize": 50,
+                "options": {}
+            },
+            "name": "SplitInBatches Clients",
+            "type": "n8n-nodes-base.splitInBatches",
+            "typeVersion": 1,
+            "position": [
+                650,
+                200
+            ]
+        },
+        {
+            "parameters": {
+                "batchSize": 50,
+                "options": {}
+            },
+            "name": "SplitInBatches Products",
+            "type": "n8n-nodes-base.splitInBatches",
+            "typeVersion": 1,
+            "position": [
+                650,
+                400
+            ]
+        }
+    ],
+    "connections": {
+        "Start": {
+            "main": [
+                [
+                    {
+                        "node": "Get Clients (Pennylane)",
+                        "type": "main",
+                        "index": 0
+                    },
+                    {
+                        "node": "Get Products (Pennylane)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Get Clients (Pennylane)": {
+            "main": [
+                [
+                    {
+                        "node": "SplitInBatches Clients",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "SplitInBatches Clients": {
+            "main": [
+                [
+                    {
+                        "node": "Upsert Client (Supabase)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Upsert Client (Supabase)": {
+            "main": [
+                [
+                    {
+                        "node": "SplitInBatches Clients",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Get Products (Pennylane)": {
+            "main": [
+                [
+                    {
+                        "node": "SplitInBatches Products",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "SplitInBatches Products": {
+            "main": [
+                [
+                    {
+                        "node": "Upsert Product (Supabase)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Upsert Product (Supabase)": {
+            "main": [
+                [
+                    {
+                        "node": "SplitInBatches Products",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    }
+}
