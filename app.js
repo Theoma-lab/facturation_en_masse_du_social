@@ -200,6 +200,23 @@ async function fetchData() {
     console.log('Fetching data from Supabase...');
     state.isLoading = true;
     try {
+        // 1. Récupérer l'utilisateur actuel
+        const { data: { user }, error: userErr } = await supabaseClient.auth.getUser();
+        if (userErr || !user) throw new Error("Utilisateur non authentifié");
+
+        // 2. Récupérer les catégories autorisées pour cet utilisateur
+        const { data: allowedCats, error: catErr } = await supabaseClient
+            .from('user_allowed_categories')
+            .select('category_id')
+            .eq('user_id', user.id);
+
+        if (catErr) {
+            console.error('Fetch Allowed Categories Error:', catErr);
+            throw catErr;
+        }
+
+        const allowedCategoryIds = allowedCats.map(c => c.category_id);
+
         // Fetch Clients
         const { data: clients, error: clientErr } = await supabaseClient
             .from('clients')
@@ -213,12 +230,22 @@ async function fetchData() {
         console.log('Successfully fetched', clients?.length, 'clients');
         state.clients = clients || [];
 
-        // Fetch Products (non archived only)
-        const { data: products, error: prodErr } = await supabaseClient
+        // Fetch Products (non archivés + filtrés par catégorie)
+        let productQuery = supabaseClient
             .from('products')
             .select('*')
             .is('archived_at', null)
             .order('label');
+
+        if (allowedCategoryIds.length > 0) {
+            productQuery = productQuery.in('category_id', allowedCategoryIds);
+        } else {
+            console.warn('L\'utilisateur n\'a aucune catégorie rattachée. Aucun produit ne sera affiché.');
+            // Optionnel : On peut décider de ne rien afficher du tout si aucune catégorie n'est rattachée
+            productQuery = productQuery.eq('id', '00000000-0000-0000-0000-000000000000');
+        }
+
+        const { data: products, error: prodErr } = await productQuery;
 
         if (prodErr) {
             console.error('Fetch Products Error:', prodErr);
