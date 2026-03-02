@@ -380,18 +380,31 @@ function attachEventListeners() {
 function toggleAllAccordions() {
     state.isAllExpanded = !state.isAllExpanded;
 
+    const allItems = document.querySelectorAll('.client-group-items');
+    const allIcons = document.querySelectorAll('.toggle-icon');
+
     if (state.isAllExpanded) {
         dom.toggleAllBtn.textContent = 'Tout réduire';
         dom.toggleAllBtn.title = "Tout réduire";
+
+        // Update State
         const uniqueClients = new Set(state.cart.map(item => item.clientName || 'Client Inconnu'));
         state.expandedClients = uniqueClients;
+
+        // Animate DOM
+        allItems.forEach(el => el.classList.remove('collapsed'));
+        allIcons.forEach(el => el.classList.remove('rotate'));
     } else {
         dom.toggleAllBtn.textContent = 'Tout développer';
         dom.toggleAllBtn.title = "Tout développer";
-        state.expandedClients.clear();
-    }
 
-    renderCart();
+        // Update State
+        state.expandedClients.clear();
+
+        // Animate DOM
+        allItems.forEach(el => el.classList.add('collapsed'));
+        allIcons.forEach(el => el.classList.add('rotate'));
+    }
 }
 
 // --- Logic ---
