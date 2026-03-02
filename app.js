@@ -872,13 +872,19 @@ function renderCart() {
                 li.innerHTML = `
                     <div class="item-info">
                         <h4>Édition : ${item.productName}</h4>
-                        <div class="details" style="display: flex; gap: 8px; align-items: center; margin-top: 8px;">
-                            <label style="margin:0; font-size: 0.85rem;">Qté:</label>
-                            <input type="number" class="cart-edit-input" value="${item.quantity}" 
-                                onchange="updateCartItem('${item.id}', 'quantity', this.value)">
-                            <label style="margin:0; font-size: 0.85rem; margin-left: 8px;">Prix HT:</label>
-                            <input type="number" step="0.01" class="cart-edit-input price-input" value="${item.unitPriceHt}" 
-                                onchange="updateCartItem('${item.id}', 'unitPriceHt', this.value)">
+                        <div class="details-edit" style="display: flex; gap: 16px; align-items: flex-end; margin-top: 12px; margin-bottom: 8px;">
+                            <div class="edit-group" style="display: flex; flex-direction: column; gap: 4px;">
+                                <label style="margin:0; font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Qté</label>
+                                <input type="number" class="cart-edit-input" value="${item.quantity}" 
+                                    onchange="updateCartItem('${item.id}', 'quantity', this.value)"
+                                    style="width: 70px; padding: 6px 10px;">
+                            </div>
+                            <div class="edit-group" style="display: flex; flex-direction: column; gap: 4px;">
+                                <label style="margin:0; font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Prix HT (€)</label>
+                                <input type="number" step="0.01" class="cart-edit-input price-input" value="${item.unitPriceHt}" 
+                                    onchange="updateCartItem('${item.id}', 'unitPriceHt', this.value)"
+                                    style="width: 100px; padding: 6px 10px;">
+                            </div>
                         </div>
                     </div>
                     <div class="item-actions">
