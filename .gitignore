@@ -5,6 +5,7 @@
 *.sql
 *.ps1
 *.json
+tables Supabase.js
 
 # Build & Env (already existing)
 env.local.txt
