@@ -1,0 +1,27 @@
+﻿FACTURES HEADERS:
+- Identifiant facture
+- Numéro de facture
+- Date
+- Échéance
+- Tiers
+- Identifiant tiers
+- Référence tiers
+- Libellé
+- Code produit
+- Libellé produit
+- Référence produit
+- Produit description
+- Compte comptable
+- Quantité
+- Unité
+- Montant TTC
+- TVA
+- Montant HT
+- Taux de TVA
+- Devise
+- Fichier
+- Date d’import
+- Date de modification
+
+PRODUITS HEADERS:
+- Identifiant produit,Dénomination du produit,Description,Type d’unité,Devise,Prix HT,Taux de TVA,TVA,Prix TTC,Référence produit
