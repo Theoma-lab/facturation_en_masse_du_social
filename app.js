@@ -708,6 +708,33 @@ function removeCartItem(itemId) {
     renderCart();
 }
 
+function toggleEditCartItem(itemId) {
+    const item = state.cart.find(i => i.id === itemId);
+    if (item) {
+        item.isEditing = !item.isEditing;
+        renderCart();
+    }
+}
+
+function updateCartItem(itemId, field, value) {
+    const item = state.cart.find(i => i.id === itemId);
+    if (!item) return;
+
+    if (field === 'quantity') {
+        item.quantity = parseInt(value) || 1;
+    } else if (field === 'unitPriceHt') {
+        item.unitPriceHt = parseFloat(value) || 0;
+        item.isStandard = false; // Mark as custom if edited
+    }
+
+    // Recalculate item totals
+    item.totalPriceHt = item.quantity * item.unitPriceHt;
+    item.totalPriceTva = item.totalPriceHt * 0.20; // 20% TVA
+    item.totalPriceTtc = item.totalPriceHt + item.totalPriceTva;
+
+    renderCart();
+}
+
 function clearCart() {
     state.cart = [];
     renderCart();
@@ -830,32 +857,61 @@ function renderCart() {
 
             const li = document.createElement('li');
             li.className = 'invoice-item';
-            li.innerHTML = `
-                <div class="item-info">
-                    <h4>${item.productName}</h4>
-                    <div class="details">
-                        <span>Qté: ${item.quantity} × ${formatCurrency(item.unitPriceHt)} HT</span>
-                        ${!item.isStandard ? '<span class="specific-price">(Spécifique)</span>' : ''}
+
+            const isEditing = item.isEditing || false;
+
+            if (isEditing) {
+                li.innerHTML = `
+                    <div class="item-info">
+                        <h4>Édition : ${item.productName}</h4>
+                        <div class="details" style="display: flex; gap: 8px; align-items: center; margin-top: 8px;">
+                            <label style="margin:0; font-size: 0.85rem;">Qté:</label>
+                            <input type="number" class="cart-edit-input" value="${item.quantity}" 
+                                onchange="updateCartItem('${item.id}', 'quantity', this.value)">
+                            <label style="margin:0; font-size: 0.85rem; margin-left: 8px;">Prix HT:</label>
+                            <input type="number" step="0.01" class="cart-edit-input price-input" value="${item.unitPriceHt}" 
+                                onchange="updateCartItem('${item.id}', 'unitPriceHt', this.value)">
+                        </div>
                     </div>
-                </div>
-                <div class="item-price">
-                    <div class="price-row">
-                        <span class="label">HT :</span>
-                        <span class="value">${formatCurrency(item.totalPriceHt)}</span>
+                    <div class="item-actions">
+                        <button class="edit-btn" onclick="toggleEditCartItem('${item.id}')" title="Valider">
+                            <i class="fa-solid fa-check" style="color: var(--color-success); font-size: 1.2rem;"></i>
+                        </button>
                     </div>
-                    <div class="price-row tva-row">
-                        <span class="label">TVA :</span>
-                        <span class="value">${formatCurrency(item.totalPriceTva)}</span>
+                `;
+            } else {
+                li.innerHTML = `
+                    <div class="item-info">
+                        <h4>${item.productName}</h4>
+                        <div class="details">
+                            <span>Qté: ${item.quantity} × ${formatCurrency(item.unitPriceHt)} HT</span>
+                            ${!item.isStandard ? '<span class="specific-price">(Spécifique)</span>' : ''}
+                        </div>
                     </div>
-                    <div class="price-row total-row">
-                        <span class="label">TTC :</span>
-                        <span class="value total">${formatCurrency(item.totalPriceTtc)}</span>
+                    <div class="item-price">
+                        <div class="price-row">
+                            <span class="label">HT :</span>
+                            <span class="value">${formatCurrency(item.totalPriceHt)}</span>
+                        </div>
+                        <div class="price-row tva-row">
+                            <span class="label">TVA :</span>
+                            <span class="value">${formatCurrency(item.totalPriceTva)}</span>
+                        </div>
+                        <div class="price-row total-row">
+                            <span class="label">TTC :</span>
+                            <span class="value total">${formatCurrency(item.totalPriceTtc)}</span>
+                        </div>
                     </div>
-                </div>
-                <button class="delete-btn" title="Supprimer" onclick="removeCartItem(${item.id})">
-                    <i class="fa-solid fa-times"></i>
-                </button>
-            `;
+                    <div class="item-actions">
+                        <button class="edit-btn" onclick="toggleEditCartItem('${item.id}')" title="Modifier">
+                            <i class="fa-solid fa-pencil"></i>
+                        </button>
+                        <button class="delete-btn" onclick="removeCartItem('${item.id}')" title="Supprimer">
+                            <i class="fa-solid fa-times"></i>
+                        </button>
+                    </div>
+                `;
+            }
             itemsList.appendChild(li);
         });
 
@@ -878,6 +934,10 @@ function renderCart() {
 }
 
 window.removeCartItem = removeCartItem;
+window.toggleEditCartItem = toggleEditCartItem;
+window.updateCartItem = updateCartItem;
+window.toggleEditCartItem = toggleEditCartItem;
+window.updateCartItem = updateCartItem;
 
 function formatCurrency(amount) {
     return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(amount);
