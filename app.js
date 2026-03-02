@@ -192,8 +192,13 @@ async function handleLogin(e) {
 }
 
 async function handleLogout() {
-    await supabaseClient.auth.signOut();
-    // OnAuthStateChange prendra le relais
+    console.log("Logout button clicked");
+    try {
+        await supabaseClient.auth.signOut();
+        console.log("Supabase signOut successful");
+    } catch (err) {
+        console.error("Logout error:", err);
+    }
 }
 
 async function fetchData() {
@@ -676,7 +681,7 @@ function addItemToCart() {
         const lineTotalTva = sp.tva * qte;
 
         const newItem = {
-            id: Date.now() + Math.random(),
+            id: String(Date.now() + Math.random()), // String ID
             clientId: state.selectedClientId,
             clientName: client.nom,
             pennylaneId: client.pennylane_id,
@@ -704,20 +709,23 @@ function addItemToCart() {
 }
 
 function removeCartItem(itemId) {
-    state.cart = state.cart.filter(item => item.id !== itemId);
+    state.cart = state.cart.filter(item => String(item.id) !== String(itemId));
     renderCart();
 }
 
 function toggleEditCartItem(itemId) {
-    const item = state.cart.find(i => i.id === itemId);
+    console.log("toggleEditCartItem called for:", itemId);
+    const item = state.cart.find(i => String(i.id) === String(itemId));
     if (item) {
         item.isEditing = !item.isEditing;
         renderCart();
+    } else {
+        console.warn("Item not found for editing:", itemId);
     }
 }
 
 function updateCartItem(itemId, field, value) {
-    const item = state.cart.find(i => i.id === itemId);
+    const item = state.cart.find(i => String(i.id) === String(itemId));
     if (!item) return;
 
     if (field === 'quantity') {
@@ -934,8 +942,6 @@ function renderCart() {
 }
 
 window.removeCartItem = removeCartItem;
-window.toggleEditCartItem = toggleEditCartItem;
-window.updateCartItem = updateCartItem;
 window.toggleEditCartItem = toggleEditCartItem;
 window.updateCartItem = updateCartItem;
 
@@ -1192,7 +1198,7 @@ async function handleExcelImport(e) {
                                 const lineTotalTva = rate.tva * quantity;
 
                                 itemsToAdd.push({
-                                    id: Date.now() + Math.random(),
+                                    id: String(Date.now() + Math.random()), // String ID
                                     clientId: matchedClient.id,
                                     clientName: matchedClient.nom,
                                     productId: matchedProduct.id,

@@ -1160,6 +1160,29 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     transform: scale(1.1);
 }
 
+/* --- Top Navbar --- */
+.top-navbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 40px;
+    width: 100%;
+    box-sizing: border-box;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 1001;
+    /* Above blobs and main content */
+    pointer-events: none;
+    /* Let clicks through unless on child */
+}
+
+.top-navbar>* {
+    pointer-events: auto;
+    /* Re-enable for children */
+}
+
 /* --- Authentication Screen --- */
 .auth-overlay {
     position: fixed;
