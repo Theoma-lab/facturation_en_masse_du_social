@@ -5,7 +5,7 @@
  */
 
 // --- Supabase Client & Configuration ---
-// Note: Webhook URL is loaded from environment variables (Production URL required for CORS)
+// Note: Webhook URL updated to production URL for CORS and persistence
 let supabaseClient = null;
 
 async function initSupabase() {
