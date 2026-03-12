@@ -23,9 +23,9 @@ async function initSupabase() {
 
 // --- Application State ---
 const state = {
-    clients: [],
+    customers: [],
     products: [],
-    selectedClientId: null,
+    selectedCustomerId: null,
 
     // Current Selection
     selectedProducts: [], // Array of { id, name, quantity, ht, ttc, tva, isStandard }
@@ -223,42 +223,38 @@ async function fetchData() {
 
         const allowedCategoryIds = allowedCats.map(c => c.category_id);
 
-        // Fetch Clients
-        const { data: clients, error: clientErr } = await supabaseClient
-            .from('clients')
-            .select('id, nom, siren, pennylane_id')
-            .order('nom');
+        // Fetch Customers
+        const { data: customers, error: customerErr } = await supabaseClient
+            .from('customers')
+            .select('id, name, siren, pennylane_id')
+            .order('name');
 
-        if (clientErr) {
-            console.error('Fetch Clients Error:', clientErr);
-            throw clientErr;
+        if (customerErr) {
+            console.error('Fetch Customers Error:', customerErr);
+            throw customerErr;
         }
-        console.log('Successfully fetched', clients?.length, 'clients');
-        state.clients = clients || [];
+        console.log('Successfully fetched', customers?.length, 'customers');
+        state.customers = customers || [];
 
-        // Fetch Products (non archivés + filtrés par catégorie)
-        let productQuery = supabaseClient
+        // Fetch ALL Products (non archivés)
+        const { data: allProducts, error: prodErr } = await supabaseClient
             .from('products')
             .select('*')
             .is('archived_at', null)
             .order('label');
 
-        if (allowedCategoryIds.length > 0) {
-            productQuery = productQuery.in('category_id', allowedCategoryIds);
-        } else {
-            console.warn('L\'utilisateur n\'a aucune catégorie rattachée. Aucun produit ne sera affiché.');
-            // Optionnel : On peut décider de ne rien afficher du tout si aucune catégorie n'est rattachée
-            productQuery = productQuery.eq('id', '00000000-0000-0000-0000-000000000000');
-        }
-
-        const { data: products, error: prodErr } = await productQuery;
-
         if (prodErr) {
             console.error('Fetch Products Error:', prodErr);
             throw prodErr;
         }
-        console.log('Successfully fetched', products?.length, 'products');
-        state.products = products || [];
+
+        // Mark products as allowed or not based on user's categories
+        state.products = (allProducts || []).map(p => ({
+            ...p,
+            isAllowed: allowedCategoryIds.length === 0 ? false : allowedCategoryIds.includes(p.category_id)
+        }));
+
+        console.log(`Successfully fetched ${state.products.length} products (${state.products.filter(p=>p.isAllowed).length} allowed)`);
 
     } catch (err) {
         console.error('Detailed fetch error:', err);
@@ -269,11 +265,11 @@ async function fetchData() {
 }
 
 function populateSelects() {
-    // Populate Clients
-    state.clients.forEach(client => {
+    // Populate Customers
+    state.customers.forEach(customer => {
         const option = document.createElement('option');
-        option.value = client.id;
-        option.textContent = client.nom;
+        option.value = customer.id;
+        option.textContent = customer.name;
         dom.clientSelect.appendChild(option);
     });
 
@@ -283,9 +279,9 @@ function populateSelects() {
 
 function attachEventListeners() {
     dom.clientSelect.addEventListener('change', async (e) => {
-        state.selectedClientId = e.target.value;
+        state.selectedCustomerId = e.target.value;
         const productsArea = document.getElementById('productSelectionArea');
-        if (state.selectedClientId) {
+        if (state.selectedCustomerId) {
             productsArea.style.opacity = '1';
             productsArea.style.pointerEvents = 'auto';
         } else {
@@ -297,13 +293,13 @@ function attachEventListeners() {
 
     // Custom Dropdown Logic
     dom.productSearch.addEventListener('click', () => {
-        if (!state.selectedClientId) return;
+        if (!state.selectedCustomerId) return;
         renderDropdownList(dom.productSearch.value);
         dom.productDropdownList.classList.remove('hidden');
     });
 
     dom.productSearch.addEventListener('input', (e) => {
-        if (!state.selectedClientId) return;
+        if (!state.selectedCustomerId) return;
         renderDropdownList(e.target.value);
         dom.productDropdownList.classList.remove('hidden');
     });
@@ -394,8 +390,8 @@ function toggleAllAccordions() {
         dom.toggleAllBtn.title = "Tout réduire";
 
         // Update State
-        const uniqueClients = new Set(state.cart.map(item => item.clientName || 'Client Inconnu'));
-        state.expandedClients = uniqueClients;
+        const uniqueCustomers = new Set(state.cart.map(item => item.customerName || 'Client Inconnu'));
+        state.expandedClients = uniqueCustomers;
 
         // Animate DOM
         allItems.forEach(el => el.classList.remove('collapsed'));
@@ -428,8 +424,9 @@ function renderDropdownList(filterText = "") {
 
     const lowerFilter = filterText.toLowerCase();
 
-    // Sort products alphabetically and filter
-    const sortedProducts = [...state.products].sort((a, b) => a.label.localeCompare(b.label));
+    const sortedProducts = [...state.products]
+        .filter(p => p.isAllowed) // ONLY ALLOWED PRODUCTS IN DROP-DOWN
+        .sort((a, b) => a.label.localeCompare(b.label));
 
     const filteredProducts = sortedProducts.filter(p => p.label.toLowerCase().includes(lowerFilter));
 
@@ -463,7 +460,7 @@ function renderDropdownList(filterText = "") {
 }
 
 async function toggleProductSelection(product) {
-    if (!state.selectedClientId) return;
+    if (!state.selectedCustomerId) return;
 
     const existingIndex = state.selectedProducts.findIndex(p => p.id === product.id);
 
@@ -482,7 +479,8 @@ async function toggleProductSelection(product) {
             tva: 0,
             tvaRate: 0,
             isStandard: true,
-            userModifiedPrice: false
+            userModifiedPrice: false,
+            isExceptional: false
         });
     }
 
@@ -490,7 +488,7 @@ async function toggleProductSelection(product) {
 }
 
 async function updateSelectedProductsPrices() {
-    if (!state.selectedClientId || state.selectedProducts.length === 0) {
+    if (!state.selectedCustomerId || state.selectedProducts.length === 0) {
         renderSelectedProductsList();
         calculateCurrentSelectionPrice();
         return;
@@ -502,7 +500,7 @@ async function updateSelectedProductsPrices() {
     // Fetch rates for all selected products
     for (const sp of state.selectedProducts) {
         if (!sp.userModifiedPrice) {
-            const rate = await getRate(state.selectedClientId, sp.id);
+            const rate = await getRate(state.selectedCustomerId, sp.id);
             sp.ht = rate.ht;
             sp.originalHt = rate.originalHt || rate.ht;
             sp.ttc = rate.ttc;
@@ -531,18 +529,31 @@ function renderSelectedProductsList() {
         row.className = 'selected-product-row';
         row.innerHTML = `
             <div class="sp-name">
-                <i class="fa-solid fa-check-circle"></i>
-                <span>${sp.name}</span>
-                ${!sp.isStandard ? '<span class="specific-price">(Spé.)</span>' : ''}
-            </div>
-            <div class="sp-qty">
-                <label>Prix HT (€)</label>
-                <input type="number" step="0.01" min="0" value="${sp.ht}" data-index="${index}" class="sp-price-input">
-                <label>Qté</label>
-                <input type="number" min="1" value="${sp.quantity}" data-index="${index}" class="sp-qty-input">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <i class="fa-solid fa-check-circle"></i>
+                    <span>${sp.name}</span>
+                    ${!sp.isStandard ? '<span class="specific-price" style="margin-left: 4px;">(Spé.)</span>' : ''}
+                </div>
                 <button type="button" class="sp-remove-btn" data-index="${index}" title="Retirer">
                     <i class="fa-solid fa-times"></i>
                 </button>
+            </div>
+            <div class="sp-qty">
+                <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
+                    <label>Prix HT (€)</label>
+                    <input type="number" step="0.01" min="0" value="${sp.ht}" data-index="${index}" class="sp-price-input">
+                </div>
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <label>Qté</label>
+                    <input type="number" min="1" value="${sp.quantity}" data-index="${index}" class="sp-qty-input">
+                </div>
+            </div>
+            <div class="sp-exceptional">
+                <label class="checkbox-container">
+                    <input type="checkbox" class="sp-exceptional-input" data-index="${index}" ${sp.isExceptional ? 'checked' : ''}>
+                    <span class="checkmark"></span>
+                    Prix exceptionnel ? (Ne sera pas enregistré comme tarif par défaut)
+                </label>
             </div>
         `;
         dom.selectedProductsList.appendChild(row);
@@ -579,7 +590,18 @@ function renderSelectedProductsList() {
                 sp.userModifiedPrice = true;
 
                 calculateCurrentSelectionPrice();
+                renderSelectedProductsList(); // Added re-render to update the "Exceptionnel" status immediately if needed
             }
+        });
+    });
+
+    // Attach event listeners to exceptional checkboxes
+    const exceptionalInputs = dom.selectedProductsList.querySelectorAll('.sp-exceptional-input');
+    exceptionalInputs.forEach(input => {
+        input.addEventListener('change', (e) => {
+            const idx = parseInt(e.target.dataset.index);
+            state.selectedProducts[idx].isExceptional = e.target.checked;
+            calculateCurrentSelectionPrice(); // Update the line preview tag
         });
     });
 
@@ -610,11 +632,11 @@ async function getRate(clientId, productId) {
         tvaRate = stdTva / stdHt;
     }
 
-    // 1. Chercher d'abord un prix spécifique (customer_pricing)
+    // 1. Chercher d'abord un prix spécifique (customer_pricings)
     const { data: specificPrice, error } = await supabaseClient
-        .from('customer_pricing')
+        .from('customer_pricings')
         .select('custom_price_ht')
-        .eq('client_id', clientId)
+        .eq('customer_id', clientId)
         .eq('product_id', productId)
         .maybeSingle();
 
@@ -632,7 +654,7 @@ async function getRate(clientId, productId) {
 }
 
 function calculateCurrentSelectionPrice() {
-    if (state.selectedProducts.length === 0 || !state.selectedClientId) {
+    if (state.selectedProducts.length === 0 || !state.selectedCustomerId) {
         dom.linePriceDisplay.classList.add('hidden');
         dom.addBtn.disabled = true;
         dom.addBtn.innerHTML = '<i class="fa-solid fa-plus"></i> Ajouter la sélection';
@@ -653,13 +675,18 @@ function calculateCurrentSelectionPrice() {
     valueEl.textContent = `${formatCurrency(totalHt)} HT`;
 
     const hasSpecific = state.selectedProducts.some(sp => !sp.isStandard);
+    const hasExceptional = state.selectedProducts.some(sp => sp.isExceptional);
 
-    if (!hasSpecific) {
+    if (hasExceptional) {
+        tagEl.textContent = "Exceptionnel";
+        tagEl.style.backgroundColor = "var(--color-danger)";
+        tagEl.style.color = "white";
+    } else if (!hasSpecific) {
         tagEl.textContent = "Standard";
         tagEl.style.backgroundColor = "var(--color-primary)";
         tagEl.style.color = "white";
     } else {
-        tagEl.textContent = "Mixte / Spé.";
+        tagEl.textContent = "Spécifique";
         tagEl.style.backgroundColor = "var(--color-secondary)";
         tagEl.style.color = "var(--color-text-on-yellow)";
     }
@@ -671,9 +698,9 @@ function calculateCurrentSelectionPrice() {
 // --- Cart Management ---
 
 function addItemToCart() {
-    if (state.selectedProducts.length === 0 || !state.selectedClientId) return;
+    if (state.selectedProducts.length === 0 || !state.selectedCustomerId) return;
 
-    const client = state.clients.find(c => c.id === state.selectedClientId);
+    const customer = state.customers.find(c => c.id === state.selectedCustomerId);
 
     state.selectedProducts.forEach(sp => {
         const qte = sp.quantity;
@@ -683,9 +710,9 @@ function addItemToCart() {
 
         const newItem = {
             id: String(Date.now() + Math.random()), // String ID
-            clientId: state.selectedClientId,
-            clientName: client.nom,
-            pennylaneId: client.pennylane_id,
+            customerId: state.selectedCustomerId,
+            customerName: customer.name,
+            pennylaneId: customer.pennylane_id,
             productId: sp.id,
             productName: sp.name,
             quantity: qte,
@@ -696,14 +723,15 @@ function addItemToCart() {
             totalPriceTtc: lineTotalTtc,
             totalPriceTva: lineTotalTva,
             isStandard: sp.isStandard,
-            userModifiedPrice: sp.userModifiedPrice
+            userModifiedPrice: sp.userModifiedPrice,
+            isExceptional: sp.isExceptional
         };
 
         state.cart.push(newItem);
     });
 
-    // Auto-expand the client so the user sees the new item immediately
-    state.expandedClients.add(client.nom);
+    // Auto-expand the customer so the user sees the new item immediately
+    state.expandedClients.add(customer.name);
 
     renderCart();
     resetLineSelection();
@@ -734,6 +762,8 @@ function updateCartItem(itemId, field, value) {
     } else if (field === 'unitPriceHt') {
         item.unitPriceHt = parseFloat(value) || 0;
         item.isStandard = false; // Mark as custom if edited
+    } else if (field === 'isExceptional') {
+        item.isExceptional = value;
     }
 
     // Recalculate item totals
@@ -753,7 +783,7 @@ function clearCart() {
 
 function showModal(title, message) {
     dom.modalTitle.textContent = title;
-    dom.modalMsg.textContent = message;
+    dom.modalMsg.innerHTML = message; // Changed to innerHTML to support structured reports
     dom.modal.classList.remove('hidden');
 }
 
@@ -792,24 +822,24 @@ function renderCart() {
     let grandTotalTva = 0;
     let grandTotalTtc = 0;
 
-    // Group items by client
+    // Group items by customer
     const groupedItems = state.cart.reduce((groups, item) => {
-        const clientName = item.clientName || 'Client Inconnu';
-        if (!groups[clientName]) groups[clientName] = [];
-        groups[clientName].push(item);
+        const customerName = item.customerName || 'Client Inconnu';
+        if (!groups[customerName]) groups[customerName] = [];
+        groups[customerName].push(item);
         return groups;
     }, {});
 
-    // Filter and Sort Clients
-    let clientNames = Object.keys(groupedItems);
+    // Filter and Sort Customers
+    let customerNames = Object.keys(groupedItems);
 
     if (state.previewSearchTerm) {
-        clientNames = clientNames.filter(name =>
+        customerNames = customerNames.filter(name =>
             name.toLowerCase().includes(state.previewSearchTerm)
         );
     }
 
-    clientNames.sort((a, b) => {
+    customerNames.sort((a, b) => {
         if (state.previewSortOrder === 'asc') {
             return a.localeCompare(b);
         } else {
@@ -817,27 +847,23 @@ function renderCart() {
         }
     });
 
-    if (clientNames.length === 0) {
-        dom.invoiceList.innerHTML = '<li class="invoice-item" style="text-align:center; padding: 2rem; color: var(--color-text-muted);">Aucun client trouvé pour cette recherche.</li>';
-    }
+    customerNames.forEach(customerName => {
+        const customerItems = groupedItems[customerName];
 
-    clientNames.forEach(clientName => {
-        const clientItems = groupedItems[clientName];
-
-        // Create client group container
+        // Create customer group container
         const clientGroup = document.createElement('div');
         clientGroup.className = 'client-group';
 
         // Check individual expansion state
-        const isExpanded = state.expandedClients.has(clientName);
+        const isExpanded = state.expandedClients.has(customerName);
 
-        // Create client header
+        // Create customer header
         const clientHeader = document.createElement('div');
         clientHeader.className = 'client-group-header';
         clientHeader.innerHTML = `
             <div class="header-left">
                 <i class="fa-solid fa-building"></i>
-                <span>${clientName}</span>
+                <span>${customerName}</span>
             </div>
             <i class="fa-solid fa-chevron-down toggle-icon ${!isExpanded ? 'rotate' : ''}"></i>
         `;
@@ -849,9 +875,9 @@ function renderCart() {
         clientHeader.onclick = () => {
             const isCollapsing = !itemsList.classList.contains('collapsed');
             if (isCollapsing) {
-                state.expandedClients.delete(clientName);
+                state.expandedClients.delete(customerName);
             } else {
-                state.expandedClients.add(clientName);
+                state.expandedClients.add(customerName);
             }
             itemsList.classList.toggle('collapsed');
             clientHeader.querySelector('.toggle-icon').classList.toggle('rotate');
@@ -859,7 +885,7 @@ function renderCart() {
 
         clientGroup.appendChild(clientHeader);
 
-        clientItems.forEach(item => {
+        customerItems.forEach(item => {
             grandTotalHt += item.totalPriceHt;
             grandTotalTva += item.totalPriceTva;
             grandTotalTtc += item.totalPriceTtc;
@@ -887,6 +913,13 @@ function renderCart() {
                                     style="width: 100px; padding: 6px 10px;">
                             </div>
                         </div>
+                        <div class="exceptional-edit" style="margin-top: 8px;">
+                            <label class="checkbox-container">
+                                <input type="checkbox" onchange="updateCartItem('${item.id}', 'isExceptional', this.checked)" ${item.isExceptional ? 'checked' : ''}>
+                                <span class="checkmark"></span>
+                                <span style="font-size: 0.8rem;">Prix exceptionnel ?</span>
+                            </label>
+                        </div>
                     </div>
                     <div class="item-actions">
                         <button class="edit-btn" onclick="toggleEditCartItem('${item.id}')" title="Valider">
@@ -897,10 +930,10 @@ function renderCart() {
             } else {
                 li.innerHTML = `
                     <div class="item-info">
-                        <h4>${item.productName}</h4>
+                        <h4>${item.productName} ${item.isExceptional ? '<span class="status-tag exceptional">Exceptionnel</span>' : ''}</h4>
                         <div class="details">
                             <span>Qté: ${item.quantity} × ${formatCurrency(item.unitPriceHt)} HT</span>
-                            ${!item.isStandard ? '<span class="specific-price">(Spécifique)</span>' : ''}
+                            ${!item.isStandard && !item.isExceptional ? '<span class="status-tag specific">Tarif Spécifique</span>' : ''}
                         </div>
                     </div>
                     <div class="item-price">
@@ -943,8 +976,8 @@ function renderCart() {
     `;
 
     // Met à jour le texte du bouton selon le nombre de clients (1 client = 1 brouillon)
-    const numClients = Object.keys(groupedItems).length;
-    const btnText = numClients > 1 ? 'les brouillons' : 'le brouillon';
+    const numCustomers = Object.keys(groupedItems).length;
+    const btnText = numCustomers > 1 ? 'les brouillons' : 'le brouillon';
     dom.submitBtn.innerHTML = `<i class="fa-solid fa-paper-plane"></i> Générer ${btnText} de facture sur Pennylane`;
 }
 
@@ -968,17 +1001,17 @@ async function handleFormSubmit(e) {
     dom.submitBtn.disabled = true;
 
     try {
-        // Group items by client for mass processing
+        // Group items by customer for mass processing
         const groupedInvoices = state.cart.reduce((acc, item) => {
-            if (!acc[item.clientId]) acc[item.clientId] = { items: [], totalHt: 0, totalTtc: 0 };
-            acc[item.clientId].items.push(item);
-            acc[item.clientId].totalHt += item.totalPriceHt;
-            acc[item.clientId].totalTtc += item.totalPriceTtc;
+            if (!acc[item.customerId]) acc[item.customerId] = { items: [], totalHt: 0, totalTtc: 0 };
+            acc[item.customerId].items.push(item);
+            acc[item.customerId].totalHt += item.totalPriceHt;
+            acc[item.customerId].totalTtc += item.totalPriceTtc;
             return acc;
         }, {});
 
-        const clientIds = Object.keys(groupedInvoices);
-        console.log(`Processing ${clientIds.length} invoices...`);
+        const customerIds = Object.keys(groupedInvoices);
+        console.log(`Processing ${customerIds.length} invoices...`);
 
         // Prepare n8n Webhook Payload
         const n8nPayload = {
@@ -986,21 +1019,22 @@ async function handleFormSubmit(e) {
             brouillons: []
         };
 
-        for (const clientId of clientIds) {
-            const invoiceData = groupedInvoices[clientId];
+        for (const customerId of customerIds) {
+            const invoiceData = groupedInvoices[customerId];
             const firstItem = invoiceData.items[0];
 
             // Add to n8n payload
             n8nPayload.brouillons.push({
-                client_id: clientId,
+                customer_id: customerId,
                 pennylane_id: firstItem.pennylaneId,
-                client_nom: firstItem.clientName || 'Client Inconnu',
+                customer_name: firstItem.customerName || 'Client Inconnu',
                 lignes: invoiceData.items.map(item => ({
                     produit_nom: item.productName,
                     quantite: item.quantity,
                     prix_unitaire_ht: item.unitPriceHt,
                     tva: item.unitPriceTva,
-                    is_standard: item.isStandard
+                    is_standard: item.isStandard,
+                    is_exceptional: item.isExceptional || false
                 })),
                 total_ht: invoiceData.totalHt,
                 total_ttc: invoiceData.totalTtc
@@ -1011,24 +1045,24 @@ async function handleFormSubmit(e) {
                 const { error } = await supabaseClient
                     .from('invoice_logs')
                     .insert({
-                        client_id: clientId,
+                        customer_id: customerId,
                         total_ht: invoiceData.totalHt,
                         status: 'pending'
                     });
-                if (error) console.warn(`Supabase log error for ${clientId}:`, error);
+                if (error) console.warn(`Supabase log error for ${customerId}:`, error);
             } catch (e) { console.warn(e); }
 
-            // 2. Save custom prices to customer_pricing table
+            // 2. Save custom prices to customer_pricing table (only if not exceptional)
             for (const item of invoiceData.items) {
-                if (item.userModifiedPrice) {
+                if (item.userModifiedPrice && !item.isExceptional) {
                     try {
                         console.log(`Saving custom price for ${item.productName}: ${item.unitPriceHt}€`);
 
                         // Check if entry already exists
                         const { data: existingEntry, error: fetchError } = await supabaseClient
-                            .from('customer_pricing')
+                            .from('customer_pricings')
                             .select('id')
-                            .eq('client_id', clientId)
+                            .eq('customer_id', customerId)
                             .eq('product_id', item.productId)
                             .maybeSingle();
 
@@ -1040,7 +1074,7 @@ async function handleFormSubmit(e) {
                         if (existingEntry) {
                             // Update existing entry
                             const { error: updateError } = await supabaseClient
-                                .from('customer_pricing')
+                                .from('customer_pricings')
                                 .update({
                                     custom_price_ht: item.unitPriceHt,
                                     updated_at: new Date().toISOString()
@@ -1051,9 +1085,9 @@ async function handleFormSubmit(e) {
                         } else {
                             // Insert new entry
                             const { error: insertError } = await supabaseClient
-                                .from('customer_pricing')
+                                .from('customer_pricings')
                                 .insert({
-                                    client_id: clientId,
+                                    customer_id: customerId,
                                     product_id: item.productId,
                                     custom_price_ht: item.unitPriceHt
                                 });
@@ -1104,7 +1138,7 @@ async function handleFormSubmit(e) {
         dom.invoiceForm.reset();
         resetLineSelection();
         dom.clientSelect.value = "";
-        state.selectedClientId = null;
+        state.selectedCustomerId = null;
         dom.dateInput.valueAsDate = new Date();
 
     } catch (err) {
@@ -1158,9 +1192,73 @@ async function handleExcelImport(e) {
                 8: ["Avenant"]
             };
 
+            const STOP_WORDS = ["de", "la", "le", "du", "en", "un", "une", "au", "aux", "par", "pour", "sur", "avec", "dans", "et"];
+            
+            const cleanString = (str) => {
+                if (!str) return "";
+                return str.toLowerCase()
+                    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+                    .replace(/[^a-z0-9\s]/g, ' ')
+                    .trim();
+            };
+
+            const tokenize = (str) => {
+                return cleanString(str).split(/\s+/).filter(t => t.length >= 2 && !STOP_WORDS.includes(t));
+            };
+
+            const isApprox = (s1, s2) => {
+                const n1 = s1; // already clean via tokenize
+                const n2 = s2; 
+                if (n1 === n2) return true;
+                
+                // Special aliases
+                if (n1 === "dat" && (n2 === "accident" || n2 === "travail")) return true;
+                if (n1 === "co" && n2.startsWith("convention")) return true; 
+                if ((n1 === "w" || n1 === "work" || n1 === "med") && (n2 === "travail" || n2 === "medecine")) {
+                    if (n1 === "w" && n2 === "travail") return true;
+                    if (n1 === "med" && n2 === "medecine") return true;
+                }
+
+                const t1 = n1.replace(/[sx]$/, '');
+                const t2 = n2.replace(/[sx]$/, '');
+                if (t1 === t2) return true;
+                
+                // Prefix matching (min 3 chars strictly)
+                if (t1.length >= 3 && t2.startsWith(t1)) return true;
+                if (t2.length >= 3 && t1.startsWith(t2)) return true;
+
+                // Fuzzy for long words
+                if (t1.length >= 5 && t2.length >= 5 && Math.abs(t1.length - t2.length) <= 1) {
+                    let l = t1.length > t2.length ? t1 : t2;
+                    let s = t1.length > t2.length ? t2 : t1;
+                    let err = 0, si = 0;
+                    for (let li = 0; li < l.length && err <= 1; li++) {
+                        if (l[li] !== s[si]) {
+                            err++;
+                            if (l.length === s.length) si++;
+                        } else {
+                            si++;
+                        }
+                    }
+                    return err <= 1;
+                }
+                return false;
+            };
+
             const itemsToAdd = [];
-            let clientsFound = 0;
-            let unrecognizedClients = [];
+            let customersFound = 0;
+            const IMPORT_LOGIC_VERSION = "2.0";
+            console.log(`[Import Debug] Starting process with version ${IMPORT_LOGIC_VERSION}`);
+
+            const skippedRows = {
+                noSiren: [],
+                unknownCustomer: [],
+                purelyEmpty: [],
+                textualRecognized: [],
+                textualForbidden: [],
+                textualAutoAdded: [],
+                textualUnrecognized: []
+            };
 
             for (let r = 1; r < jsonData.length; r++) {
                 // Update percentage for user feedback
@@ -1170,58 +1268,200 @@ async function handleExcelImport(e) {
                 const row = jsonData[r];
                 if (!row || row.length < 1) continue;
 
+                const rowNum = r + 1; // Excel row number
+
                 const clientSiren = String(row[1] || "").trim();
-                if (!clientSiren) continue;
-
-                // Match by SIREN instead of name
-                const matchedClient = state.clients.find(c =>
-                    String(c.siren || "").trim() === clientSiren
-                );
-
-                if (!matchedClient) {
-                    unrecognizedClients.push(clientSiren);
+                if (!clientSiren) {
+                    skippedRows.noSiren.push(rowNum);
                     continue;
                 }
 
-                clientsFound++;
+                // Match by SIREN instead of name
+                const matchedCustomer = state.customers.find(c =>
+                    String(c.siren || "").trim() === clientSiren
+                );
 
-                // Process columns for this client
+                if (!matchedCustomer) {
+                    skippedRows.unknownCustomer.push({ row: rowNum, siren: clientSiren });
+                    continue;
+                }
+
+                customersFound++;
+                let hasMappedColumnWithData = false;
+                let rowValid = false;
+
+                // 1. Process standard mapped columns (2-8) for numeric quantities
                 for (const [colIndex, productLabels] of Object.entries(columnMapping)) {
                     const idx = parseInt(colIndex);
-                    const quantity = parseFloat(row[idx]);
+                    const cellValue = String(row[idx] || "").trim();
+                    if (!cellValue || cellValue === "0") continue;
 
+                    const quantity = parseFloat(cellValue.replace(',', '.'));
                     if (!isNaN(quantity) && quantity > 0) {
+                        hasMappedColumnWithData = true;
+                        
                         for (const label of productLabels) {
                             const matchedProduct = state.products.find(p =>
                                 p.label.toLowerCase().trim() === label.toLowerCase().trim()
                             );
 
                             if (matchedProduct) {
-                                // We need the rate (async)
-                                const rate = await getRate(matchedClient.id, matchedProduct.id);
-
-                                const lineTotalHt = rate.ht * quantity;
-                                const lineTotalTtc = rate.ttc * quantity;
-                                const lineTotalTva = rate.tva * quantity;
-
+                                rowValid = true;
+                                const rate = await getRate(matchedCustomer.id, matchedProduct.id);
                                 itemsToAdd.push({
-                                    id: String(Date.now() + Math.random()), // String ID
-                                    clientId: matchedClient.id,
-                                    clientName: matchedClient.nom,
+                                    id: String(Date.now() + Math.random()), 
+                                    customerId: matchedCustomer.id,
+                                    customerName: matchedCustomer.name,
                                     productId: matchedProduct.id,
                                     productName: matchedProduct.label,
                                     quantity: quantity,
                                     unitPriceHt: rate.ht,
                                     unitPriceTtc: rate.ttc,
                                     unitPriceTva: rate.tva,
-                                    totalPriceHt: lineTotalHt,
-                                    totalPriceTtc: lineTotalTtc,
-                                    totalPriceTva: lineTotalTva,
-                                    isStandard: rate.isStandard
+                                    totalPriceHt: rate.ht * quantity,
+                                    totalPriceTtc: rate.ttc * quantity,
+                                    totalPriceTva: rate.tva * quantity,
+                                    isStandard: rate.isStandard,
+                                    rowNum: rowNum
                                 });
                             }
                         }
                     }
+                }
+
+                // 2. Specific check for "Autre" column (Index 9)
+                const autreRaw = String(row[9] || "").trim();
+                let autreValue = autreRaw;
+                let quantityInAutre = 0;
+
+                if (autreRaw && autreRaw !== "0") {
+                    hasMappedColumnWithData = true;
+
+                    // Handle multi-product separator (+ or et)
+                    const subParts = autreRaw.split(/\s*(?:\+|\bet\b)\s*/i);
+
+                    for (const rawPart of subParts) {
+                        if (!rawPart.trim()) continue;
+
+                        let currentVal = rawPart.trim();
+                        let currentQty = 0;
+
+                        // Extract quantity and unit (e.g. "15 mn", "2 h", "1.5 h")
+                        const qtyMatch = currentVal.match(/^(\d+[\.,]?\d*)\s*(mn|min|h|hs|heures)?[\s,.]+(.*)/i);
+                        if (qtyMatch) {
+                            let rawQty = parseFloat(qtyMatch[1].replace(',', '.'));
+                            const unit = (qtyMatch[2] || "").toLowerCase();
+                            
+                            if (unit.startsWith('m')) {
+                                // Convert minutes to decimal segments if needed, but here we assume qty is the unit
+                                currentQty = rawQty / 60; 
+                            } else {
+                                currentQty = rawQty;
+                            }
+                            currentVal = qtyMatch[3].trim();
+                        }
+                        
+                        let bestProduct = null;
+                        let maxMatchStrength = -1;
+                        let bestConfidence = 0;
+                        let bestProductCoverage = 0;
+                        let candidates = [];
+                        
+                        const valTokens = tokenize(currentVal);
+
+                        for (const product of state.products) {
+                            const pWords = tokenize(product.label);
+                            if (pWords.length === 0) continue;
+
+                            let currentPWordIdx = 0;
+                            let matchesFoundInSequence = 0;
+
+                            for (const token of valTokens) {
+                                for (let i = currentPWordIdx; i < pWords.length; i++) {
+                                    if (isApprox(token, pWords[i])) {
+                                        matchesFoundInSequence++;
+                                        currentPWordIdx = i + 1; 
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if (matchesFoundInSequence > 0) {
+                                const coverageProduct = (matchesFoundInSequence / pWords.length);
+                                const coverageInput = (matchesFoundInSequence / valTokens.length);
+                                
+                                // Score = 100% if we cover the shorter set of semantic words
+                                const confidence = (matchesFoundInSequence / Math.min(pWords.length, valTokens.length)) * 100;
+                                
+                                // Tie-breaker: prioritize products where we match more of the actual words
+                                const strength = (confidence * 1000) + (coverageProduct * 100) + product.label.length; 
+                                
+                                candidates.push({ label: product.label, confidence, strength, matches: matchesFoundInSequence, coverage: coverageProduct, isAllowed: product.isAllowed });
+
+                                if (strength > maxMatchStrength) {
+                                    maxMatchStrength = strength;
+                                    bestProduct = product;
+                                    bestConfidence = confidence;
+                                    bestProductCoverage = coverageProduct;
+                                }
+                            }
+                        }
+
+                        // RELIABILITY CRITERIA (v2.0):
+                        // - Either very high confidence (>85%) 
+                        // - Or good confidence (>60%) with either 50%+ product coverage OR 2+ semantic words match
+                        const matches = bestProduct ? (candidates.find(c => c.label === bestProduct.label)?.matches || 0) : 0;
+                        const isReliable = bestProduct && (
+                            (bestConfidence >= 85) || 
+                            (bestConfidence >= 60 && (bestProductCoverage >= 0.5 || matches >= 2))
+                        );
+
+                        if (rowNum === 58 || rowNum === 70 || rowNum === 2 || (bestProduct && !isReliable)) {
+                            console.log(`[Import Debug] ROW ${rowNum} PART "${rawPart.trim()}":`, 
+                                { winner: bestProduct?.label, reliable: !!isReliable, confidence: bestConfidence, matches, coverage: bestProductCoverage },
+                                candidates.sort((a,b) => b.strength - a.strength).slice(0, 3)
+                            );
+                        }
+
+                        if (isReliable) {
+                            console.log(`[Import Debug] ROW ${rowNum} | Auto-Add: "${bestProduct.label}"`);
+                            
+                            const finalQty = (currentQty > 0) ? currentQty : 1;
+                            const rate = await getRate(matchedCustomer.id, bestProduct.id);
+                            itemsToAdd.push({
+                                id: String(Date.now() + Math.random()), 
+                                customerId: matchedCustomer.id,
+                                customerName: matchedCustomer.name,
+                                productId: bestProduct.id,
+                                productName: bestProduct.label,
+                                quantity: finalQty,
+                                unitPriceHt: rate.ht,
+                                unitPriceTtc: rate.ttc,
+                                unitPriceTva: rate.tva,
+                                totalPriceHt: rate.ht * finalQty,
+                                totalPriceTtc: rate.ttc * finalQty,
+                                totalPriceTva: rate.tva * finalQty,
+                                isStandard: rate.isStandard,
+                                rowNum: rowNum,
+                                fromAutre: true
+                            });
+                            skippedRows.textualAutoAdded.push({ row: rowNum, product: bestProduct.label });
+                        } else if (bestProduct) {
+                            // Recognition without auto-add (unreliable or forbidden)
+                            if (bestProduct.isAllowed) {
+                                skippedRows.textualRecognized.push({ row: rowNum, product: bestProduct.label });
+                            } else {
+                                skippedRows.textualForbidden.push({ row: rowNum, product: bestProduct.label });
+                            }
+                        } else {
+                            skippedRows.textualUnrecognized.push({ row: rowNum, content: rawPart });
+                        }
+                    }
+                }
+
+                // 3. Categorize skipped row
+                if (!hasMappedColumnWithData) {
+                    skippedRows.purelyEmpty.push(rowNum);
                 }
             }
 
@@ -1234,12 +1474,124 @@ async function handleExcelImport(e) {
             state.cart = [...state.cart, ...itemsToAdd];
             renderCart();
 
-            let msg = `Importation terminée :\n- ${clientsFound} clients traités\n- ${itemsToAdd.length} lignes ajoutées.`;
-            if (unrecognizedClients.length > 0) {
-                msg += `\n\nAttention, ${unrecognizedClients.length} clients non reconnus :\n${unrecognizedClients.slice(0, 5).join(', ')}${unrecognizedClients.length > 5 ? '...' : ''}`;
+            // Success Analysis
+            const title = itemsToAdd.length > 0 ? "Importation Terminée" : "Importation Échouée";
+            const successfulRowNums = [...new Set(itemsToAdd.map(item => item.rowNum))];
+            
+            const autoAddedRows = skippedRows.textualAutoAdded.map(m => m.row);
+            const recognizedInSuccess = successfulRowNums.filter(num => !autoAddedRows.includes(num) && skippedRows.textualRecognized.some(m => m.row === num));
+            const forbiddenInSuccess = successfulRowNums.filter(num => !autoAddedRows.includes(num) && skippedRows.textualForbidden.some(m => m.row === num));
+            const unrecognizedInSuccess = successfulRowNums.filter(num => !autoAddedRows.includes(num) && skippedRows.textualUnrecognized.some(m => m.row === num));
+
+            let msg = `<div class="import-summary">
+                <div class="summary-item success">
+                    <div class="summary-icon"><i class="fa-solid fa-check-circle"></i></div>
+                    <div class="summary-content">
+                        <strong>${itemsToAdd.length} prestation(s) ajoutée(s)</strong>
+                        <span>(${customersFound} clients identifiés)</span>
+                        
+                        ${skippedRows.textualAutoAdded.length > 0 ? `
+                        <div class="summary-sub-container" style="margin-top: 8px; border-top: 1px dashed rgba(16, 185, 129, 0.4); padding-top: 8px;">
+                            <div class="sub-reason" style="color: var(--color-success); font-weight: bold; font-size: 0.75rem;">Ajouts automatiques (via colonne "Autre") :</div>
+                            <div class="sub-lines" style="color: var(--color-success); opacity: 0.9; font-size: 0.8rem;">Lignes : ${skippedRows.textualAutoAdded.map(m => m.row).sort((a,b) => a-b).join(', ')}<br><small>Produit(s) reconnu(s) et ajouté(s) automatiquement grâce à la valeur textuelle.</small></div>
+                        </div>` : ''}
+
+                        ${recognizedInSuccess.length > 0 ? `
+                        <div class="summary-sub-container" style="margin-top: 8px; border-top: 1px dashed rgba(16, 185, 129, 0.2); padding-top: 8px;">
+                            <div class="sub-reason" style="color: var(--color-success); opacity: 1; font-size: 0.7rem;">Commentaire dans la colonne "Autre" avec produit reconnu :</div>
+                            <div class="sub-lines" style="color: var(--color-success); opacity: 0.8; font-size: 0.8rem;">Lignes : ${recognizedInSuccess.sort((a,b) => a-b).join(', ')}<br><small>Merci d'ajouter ce produit en tant que colonne dans l'excel.</small></div>
+                        </div>` : ''}
+
+                        ${forbiddenInSuccess.length > 0 ? `
+                        <div class="summary-sub-container" style="margin-top: 8px; border-top: 1px dashed rgba(16, 185, 129, 0.2); padding-top: 8px;">
+                            <div class="sub-reason" style="color: var(--color-success); opacity: 1; font-size: 0.7rem;">Produit reconnu (hors catégorie autorisée) :</div>
+                            <div class="sub-lines" style="color: var(--color-success); opacity: 0.8; font-size: 0.8rem;">Lignes : ${forbiddenInSuccess.sort((a,b) => a-b).join(', ')}<br><small>Merci de contacter l'administrateur pour l'ajouter à vos accès.</small></div>
+                        </div>` : ''}
+
+                        ${unrecognizedInSuccess.length > 0 ? `
+                        <div class="summary-sub-container" style="margin-top: 8px; border-top: 1px dashed rgba(16, 185, 129, 0.2); padding-top: 8px;">
+                            <div class="sub-reason" style="color: var(--color-success); opacity: 1; font-size: 0.7rem;">Commentaire dans la colonne "Autre" avec produit non reconnu :</div>
+                            <div class="sub-lines" style="color: var(--color-success); opacity: 0.8; font-size: 0.8rem;">Lignes : ${unrecognizedInSuccess.sort((a,b) => a-b).join(', ')}<br><small>Merci d'ajouter cette mention dans la colonne commentaire et d'ajouter le produit "Divers social" dans une colonne du excel.</small></div>
+                        </div>` : ''}
+                    </div>
+                </div>`;
+
+            if (skippedRows.noSiren.length > 0) {
+                msg += `<div class="summary-item error">
+                    <div class="summary-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                    <div class="summary-content">
+                        <strong>SIREN manquant</strong>
+                        <span>Lignes : ${skippedRows.noSiren.join(', ')}</span>
+                    </div>
+                </div>`;
             }
-            renderCart();
-            showModal("Importation Terminée", msg);
+
+            if (skippedRows.unknownCustomer.length > 0) {
+                const sirenList = skippedRows.unknownCustomer.map(item => `${item.siren} (L:${item.row})`).join(', ');
+                msg += `<div class="summary-item error">
+                    <div class="summary-icon"><i class="fa-solid fa-user-slash"></i></div>
+                    <div class="summary-content">
+                        <strong>SIREN non reconnus</strong>
+                        <span class="small-list">${sirenList}</span>
+                    </div>
+                </div>`;
+            }
+
+            // Ignored Rows Analysis
+            const groupPurelyEmpty = skippedRows.purelyEmpty.sort((a,b) => a-b);
+            const groupTextRecognized = skippedRows.textualRecognized.filter(m => !successfulRowNums.includes(m.row)).map(m => m.row).sort((a,b) => a-b);
+            const groupTextForbidden = skippedRows.textualForbidden.filter(m => !successfulRowNums.includes(m.row)).map(m => m.row).sort((a,b) => a-b);
+            const groupTextUnrecognized = skippedRows.textualUnrecognized.filter(m => !successfulRowNums.includes(m.row)).map(m => m.row).sort((a,b) => a-b);
+
+            if (groupPurelyEmpty.length > 0 || groupTextRecognized.length > 0 || groupTextForbidden.length > 0 || groupTextUnrecognized.length > 0) {
+                let sections = [];
+                
+                if (groupPurelyEmpty.length > 0) {
+                    sections.push(`
+                        <div class="summary-sub-item">
+                            <div class="sub-reason">Lignes à 0 ou vides</div>
+                            <div class="sub-lines">Lignes : ${groupPurelyEmpty.join(', ')}</div>
+                        </div>`);
+                }
+
+                if (groupTextRecognized.length > 0) {
+                    sections.push(`
+                        <div class="summary-sub-item">
+                            <div class="sub-reason">Commentaire dans la colonne "Autre" avec produit reconnu</div>
+                            <div class="sub-lines">Lignes : ${groupTextRecognized.join(', ')}<br><small>Merci d'ajouter ce produit en tant que colonne dans l'excel.</small></div>
+                        </div>`);
+                }
+
+                if (groupTextForbidden.length > 0) {
+                    sections.push(`
+                        <div class="summary-sub-item">
+                            <div class="sub-reason">Produit reconnu (hors catégorie autorisée)</div>
+                            <div class="sub-lines">Lignes : ${groupTextForbidden.join(', ')}<br><small>Merci de contacter l'administrateur pour l'ajouter à vos accès.</small></div>
+                        </div>`);
+                }
+                
+                if (groupTextUnrecognized.length > 0) {
+                    sections.push(`
+                        <div class="summary-sub-item">
+                            <div class="sub-reason">Commentaire dans la colonne "Autre" avec produit non reconnu</div>
+                            <div class="sub-lines">Lignes : ${groupTextUnrecognized.join(', ')}<br><small>Merci d'ajouter cette mention dans la colonne commentaire et d'ajouter le produit "Divers social" dans une colonne du excel.</small></div>
+                        </div>`);
+                }
+
+                msg += `<div class="summary-item warning">
+                    <div class="summary-icon"><i class="fa-solid fa-circle-exclamation"></i></div>
+                    <div class="summary-content">
+                        <strong>LIGNES IGNORÉES</strong>
+                        <div class="summary-sub-container">
+                            ${sections.join('')}
+                        </div>
+                    </div>
+                </div>`;
+            }
+
+            msg += `</div>`;
+
+            showModal(title, msg);
 
         } catch (err) {
             console.error('Excel Import Error:', err);

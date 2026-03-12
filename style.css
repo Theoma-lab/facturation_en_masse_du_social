@@ -166,7 +166,7 @@ body {
 .layout-content-split .content-area {
     flex: 1;
     width: 100%;
-    max-width: 520px;
+    max-width: 650px; /* Increased from 520px to accommodate new checkbox and long names */
     /* Keeps form readable */
 }
 
@@ -723,6 +723,90 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     color: var(--color-secondary);
 }
 
+.sp-qty .sp-remove-btn:hover {
+    background: rgba(239, 68, 68, 0.2);
+    color: var(--color-danger);
+}
+
+/* Exceptional Price Checkbox Style */
+.sp-exceptional {
+    grid-column: 1 / -1;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--color-border);
+}
+
+.checkbox-container {
+    display: flex;
+    align-items: center;
+    position: relative;
+    padding-left: 30px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+    user-select: none;
+    transition: color var(--transition-fast);
+}
+
+.checkbox-container:hover {
+    color: var(--color-text-main);
+}
+
+.checkbox-container input {
+    position: absolute;
+    opacity: 0;
+    cursor: pointer;
+    height: 0;
+    width: 0;
+}
+
+.checkmark {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    transform: translateY(-50%);
+    height: 18px;
+    width: 18px;
+    background-color: rgba(15, 23, 42, 0.6);
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    transition: all var(--transition-fast);
+}
+
+.checkbox-container:hover input ~ .checkmark {
+    border-color: var(--color-secondary);
+}
+
+.checkbox-container input:checked ~ .checkmark {
+    background-color: var(--color-secondary);
+    border-color: var(--color-secondary);
+}
+
+.checkmark:after {
+    content: "";
+    position: absolute;
+    display: none;
+}
+
+.checkbox-container input:checked ~ .checkmark:after {
+    display: block;
+}
+
+.checkbox-container .checkmark:after {
+    left: 6px;
+    top: 2px;
+    width: 5px;
+    height: 10px;
+    border: solid var(--color-text-on-yellow);
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+
+.invoice-item .item-info .specific-price {
+    background: rgba(250, 204, 21, 0.2);
+    color: var(--color-secondary);
+}
+
 /* Inline Editing Inputs */
 .cart-edit-input {
     background: rgba(255, 255, 255, 0.05);
@@ -841,10 +925,25 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     letter-spacing: 0.5px;
 }
 
-.specific-price {
-    font-size: 0.7rem;
-    color: var(--color-secondary);
-    font-style: italic;
+.status-tag {
+    display: inline-block;
+    font-size: 0.65rem;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 700;
+    text-transform: uppercase;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+
+.status-tag.exceptional {
+    background: var(--color-danger);
+    color: white;
+}
+
+.status-tag.specific {
+    background: var(--color-secondary);
+    color: var(--color-text-on-yellow);
 }
 
 .invoice-item h4 {
@@ -947,11 +1046,11 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 }
 
 .modal-content {
-    width: 90%;
-    max-width: 450px;
+    width: 95%;
+    max-width: 600px; /* Increased from 450px for better report readability */
     background: var(--color-surface);
     border: 1px solid var(--color-border);
-    padding: var(--spacing-lg) !important;
+    padding: 24px !important;
     animation: zoomIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
 }
 
@@ -984,8 +1083,6 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     margin-bottom: var(--spacing-lg);
     line-height: 1.6;
     color: var(--color-text-main);
-    white-space: pre-line;
-    /* Respect newlines */
 }
 
 .modal-footer {
@@ -1078,9 +1175,9 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 
 .selected-product-row {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 8px 12px;
+    flex-direction: column; /* Use column to allow sections to stack or use grid */
+    gap: 12px;
+    padding: 16px;
     background: rgba(0, 0, 0, 0.2);
     border-radius: var(--radius-sm);
     border: 1px solid rgba(255, 255, 255, 0.05);
@@ -1094,8 +1191,10 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 .selected-product-row .sp-name {
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 0.9rem;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 0.95rem;
+    font-weight: 500;
 }
 
 .selected-product-row .sp-name i {
@@ -1111,8 +1210,12 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 .selected-product-row .sp-qty {
     display: flex;
     align-items: center;
-    gap: 8px;
-    flex-wrap: nowrap;
+    justify-content: flex-end;
+    gap: 12px;
+    flex-wrap: wrap;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 10px;
+    border-radius: var(--radius-sm);
 }
 
 .selected-product-row .sp-qty label {
@@ -1151,7 +1254,6 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     color: var(--color-danger);
     cursor: pointer;
     opacity: 0.7;
-    margin-left: 12px;
     transition: all var(--transition-fast);
 }
 
@@ -1254,4 +1356,118 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
         box-shadow: 0 0 0 0 rgba(255, 230, 153, 0);
         transform: scale(0.95);
     }
+}
+
+/* Import Summary Modal Styles */
+.import-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-top: 8px;
+}
+
+.summary-item {
+    display: flex;
+    align-items: center; /* Center icon vertically with first line */
+    gap: 12px;
+    padding: 12px 16px;
+    border-radius: 12px;
+    border: 1px solid var(--color-border);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.summary-item .summary-icon {
+    font-size: 1.1rem;
+    flex-shrink: 0;
+}
+
+.summary-icon {
+    font-size: 1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+}
+
+.summary-content {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+} /* Removed flex: 1 to prevent stretching */
+
+.summary-item.success {
+    border-color: var(--color-success);
+    background: rgba(16, 185, 129, 0.08);
+}
+
+.summary-item.success .summary-icon {
+    color: var(--color-success);
+}
+
+.summary-item.error {
+    border-color: var(--color-danger);
+    background: rgba(239, 68, 68, 0.08);
+}
+
+.summary-item.error .summary-icon {
+    color: var(--color-danger);
+}
+
+.summary-item.warning {
+    border-color: var(--color-secondary);
+    background: rgba(250, 204, 21, 0.08);
+}
+
+.summary-item.warning .summary-icon {
+    color: var(--color-secondary);
+}
+
+.summary-content strong {
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--color-text-main);
+}
+
+.summary-content span {
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+    line-height: 1.4;
+}
+
+.summary-sub-container {
+    margin-top: 4px;
+}
+
+.summary-sub-item {
+    padding: 8px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.summary-sub-item:not(:first-child) {
+    border-top: 1px dashed rgba(255, 255, 255, 0.1);
+    margin-top: 4px;
+}
+
+.sub-reason {
+    color: var(--color-text-main);
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    opacity: 0.9;
+}
+
+.sub-lines {
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+    line-height: 1.4;
+    margin-top: 1px;
+}
+
+.summary-content .small-list {
+    word-break: break-word;
+    font-family: monospace;
 }
