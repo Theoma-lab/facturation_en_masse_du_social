@@ -1282,7 +1282,8 @@ async function handleExcelImport(e) {
                 );
 
                 if (!matchedCustomer) {
-                    skippedRows.unknownCustomer.push({ row: rowNum, siren: clientSiren });
+                    const potentialName = String(row[0] || "").trim();
+                    skippedRows.unknownCustomer.push({ row: rowNum, siren: clientSiren, name: potentialName });
                     continue;
                 }
 
@@ -1465,10 +1466,7 @@ async function handleExcelImport(e) {
                 }
             }
 
-            if (itemsToAdd.length === 0) {
-                showModal("Importation Annulée", "Aucune donnée de facturation valide trouvée dans l'Excel.");
-                return;
-            }
+            // Removed the early return to allow showing the report even if nothing was added
 
             // 3. Update cart (Append instead of Replace)
             state.cart = [...state.cart, ...itemsToAdd];
@@ -1527,12 +1525,19 @@ async function handleExcelImport(e) {
             }
 
             if (skippedRows.unknownCustomer.length > 0) {
-                const sirenList = skippedRows.unknownCustomer.map(item => `${item.siren} (L:${item.row})`).join(', ');
+                const sirenList = skippedRows.unknownCustomer.map(item => {
+                    const nameStr = item.name ? ` (${item.name})` : '';
+                    return `L:${item.row} - ${item.siren}${nameStr}`;
+                }).join('<br>');
+                
                 msg += `<div class="summary-item error">
                     <div class="summary-icon"><i class="fa-solid fa-user-slash"></i></div>
                     <div class="summary-content">
-                        <strong>SIREN non reconnus</strong>
-                        <span class="small-list">${sirenList}</span>
+                        <strong>SIREN non reconnus ou absents de la base</strong>
+                        <div class="small-list" style="margin-top: 5px; line-height: 1.4;">${sirenList}</div>
+                        <div style="margin-top: 8px; font-size: 0.75rem; opacity: 0.8; color: var(--color-danger);">
+                            <i class="fa-solid fa-circle-info"></i> Vérifiez que ces clients sont bien synchronisés depuis Pennylane.
+                        </div>
                     </div>
                 </div>`;
             }
