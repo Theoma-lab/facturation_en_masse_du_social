@@ -59,6 +59,9 @@
 
             <!-- Profile Top Right -->
             <div class="user-profile" style="display: flex; align-items: center; gap: 15px;">
+                <button id="historyBtn" class="btn btn-secondary" style="padding: 6px 12px; font-size: 0.8rem;">
+                    <i class="fa-solid fa-history"></i> Historique
+                </button>
                 <div class="user-status" style="display: flex; align-items: center; gap: 8px;">
                     <span class="status-dot"></span>
                     <span id="userEmailDisplay"
@@ -229,6 +232,29 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-primary" id="modalCloseBtn">
                     Compris
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- History Modal -->
+    <div id="historyModal" class="modal-overlay hidden">
+        <div class="modal-content glass-panel" style="max-width: 800px; width: 90%;">
+            <div class="modal-header">
+                <i class="fa-solid fa-history"></i>
+                <h3>Historique des envois</h3>
+            </div>
+            <div class="modal-body">
+                <div id="historyListContainer" class="history-list-wrapper">
+                    <!-- Historique injécté ici -->
+                    <div style="text-align: center; padding: 2rem; color: var(--color-text-muted);">
+                        Chargement de l'historique...
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="historyCloseBtn">
+                    Fermer
                 </button>
             </div>
         </div>

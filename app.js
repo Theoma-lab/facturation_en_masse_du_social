@@ -38,7 +38,8 @@ const state = {
 
     isLoading: false,
     isAllExpanded: false,
-    expandedClients: new Set()
+    expandedClients: new Set(),
+    autoSaveTimer: null // Pour le délai de sauvegarde
 };
 
 // --- DOM Elements ---
@@ -81,7 +82,13 @@ const dom = {
     loginBtn: document.getElementById('loginBtn'),
     loginError: document.getElementById('loginError'),
     logoutBtn: document.getElementById('logoutBtn'),
-    userEmailDisplay: document.getElementById('userEmailDisplay')
+    userEmailDisplay: document.getElementById('userEmailDisplay'),
+
+    // History Elements
+    historyBtn: document.getElementById('historyBtn'),
+    historyModal: document.getElementById('historyModal'),
+    historyCloseBtn: document.getElementById('historyCloseBtn'),
+    historyListContainer: document.getElementById('historyListContainer')
 };
 
 // --- Initialization ---
@@ -104,6 +111,8 @@ async function init() {
                 showMainApp();
                 await fetchData();
                 populateSelects();
+                initHistory();
+                await checkAndRestoreDraft(); // Vérifier les brouillons au démarrage
             } else {
                 // Force logout of mismatched domain from previous sessions
                 await supabaseClient.auth.signOut();
@@ -126,6 +135,8 @@ async function init() {
                         showMainApp();
                         await fetchData();
                         populateSelects();
+                        initHistory();
+                        await checkAndRestoreDraft(); // Vérifier les brouillons au démarrage
                     } else {
                         // Accès refusé : mauvais domaine
                         console.warn(`Tentative de connexion refusée pour l'email: ${email}`);
@@ -771,20 +782,76 @@ function updateCartItem(itemId, field, value) {
     item.totalPriceTva = item.totalPriceHt * 0.20; // 20% TVA
     item.totalPriceTtc = item.totalPriceHt + item.totalPriceTva;
 
-    renderCart();
+    // Suppression du renderCart() ici pour éviter de casser le focus/clic sur le bouton valider
+    // Le rendu sera fait lors du toggleEditCartItem (clic sur le check)
 }
 
 function clearCart() {
     state.cart = [];
     renderCart();
+
+    // Supprimer le brouillon car le panier est vidé
+    deleteDraft();
 }
 
 // --- Modal ---
 
 function showModal(title, message) {
     dom.modalTitle.textContent = title;
-    dom.modalMsg.innerHTML = message; // Changed to innerHTML to support structured reports
+    dom.modalMsg.innerHTML = message;
     dom.modal.classList.remove('hidden');
+}
+
+/**
+ * showConfirmModal - Custom confirmation modal
+ */
+function showConfirmModal(title, message, confirmText = "Confirmer", cancelText = "Annuler") {
+    return new Promise((resolve) => {
+        const modal = dom.modal;
+        const titleEl = dom.modalTitle;
+        const msgEl = dom.modalMsg;
+        const closeBtn = dom.modalCloseBtn;
+
+        titleEl.textContent = title;
+        msgEl.innerHTML = message;
+
+        // Change close button to confirm button
+        const originalText = closeBtn.textContent;
+        const originalIcon = closeBtn.querySelector('i')?.className || '';
+        
+        closeBtn.innerHTML = `<i class="fa-solid fa-check"></i> ${confirmText}`;
+
+        // Add a temporary cancel button
+        const footer = modal.querySelector('.modal-footer');
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'btn btn-secondary';
+        cancelBtn.innerHTML = `<i class="fa-solid fa-xmark"></i> ${cancelText}`;
+        cancelBtn.style.marginRight = 'auto'; // Push confirm to right
+        footer.insertBefore(cancelBtn, closeBtn);
+
+        const onConfirm = () => {
+            cleanup();
+            resolve(true);
+        };
+
+        const onCancel = () => {
+            cleanup();
+            resolve(false);
+        };
+
+        const cleanup = () => {
+            closeBtn.innerHTML = `Compris`;
+            cancelBtn.remove();
+            modal.classList.add('hidden');
+            closeBtn.removeEventListener('click', onConfirm);
+            cancelBtn.removeEventListener('click', onCancel);
+        };
+
+        closeBtn.addEventListener('click', onConfirm);
+        cancelBtn.addEventListener('click', onCancel);
+
+        modal.classList.remove('hidden');
+    });
 }
 
 function closeModal() {
@@ -979,6 +1046,9 @@ function renderCart() {
     const numCustomers = Object.keys(groupedItems).length;
     const btnText = numCustomers > 1 ? 'les brouillons' : 'le brouillon';
     dom.submitBtn.innerHTML = `<i class="fa-solid fa-paper-plane"></i> Générer ${btnText} de facture sur Pennylane`;
+
+    // Déclencher la sauvegarde automatique vers Supabase
+    triggerAutoSave();
 }
 
 window.removeCartItem = removeCartItem;
@@ -1040,17 +1110,32 @@ async function handleFormSubmit(e) {
                 total_ttc: invoiceData.totalTtc
             });
 
-            // 1. Log the invoice in Supabase (Optional but good for history)
+            // 1. Log the invoice in Supabase (Backup detailed data)
             try {
                 const { error } = await supabaseClient
                     .from('invoice_logs')
                     .insert({
                         customer_id: customerId,
                         total_ht: invoiceData.totalHt,
-                        status: 'pending'
+                        status: 'pending',
+                        sent_at: new Date().toISOString(), // Fallback if DB default not set
+                        payload: invoiceData.items.map(item => ({
+                            product_id: item.productId,
+                            produit_nom: item.productName,
+                            quantite: item.quantity,
+                            prix_unitaire_ht: item.unitPriceHt,
+                            tva: item.unitPriceTva,
+                            is_standard: item.isStandard,
+                            is_exceptional: item.isExceptional || false
+                        }))
                     });
-                if (error) console.warn(`Supabase log error for ${customerId}:`, error);
-            } catch (e) { console.warn(e); }
+                if (error) {
+                    console.error(`[History Log] Error for ${customerId}:`, error.message);
+                    // On ne bloque pas tout, mais on prévient dans la console
+                } else {
+                    console.log(`[History Log] Enregistré pour ${customerId}`);
+                }
+            } catch (e) { console.error('[History Log] Exception:', e); }
 
             // 2. Save custom prices to customer_pricing table (only if not exceptional)
             for (const item of invoiceData.items) {
@@ -1257,8 +1342,23 @@ async function handleExcelImport(e) {
                 textualRecognized: [],
                 textualForbidden: [],
                 textualAutoAdded: [],
-                textualUnrecognized: []
+                textualUnrecognized: [],
+                unmappedColumns: [], // New category
+                missingProductInDb: [], // New category
+                missingPennylaneId: [] // New category
             };
+
+            // Detect unmapped columns in Header (Row 0)
+            const headers = jsonData[0] || [];
+            headers.forEach((header, idx) => {
+                if (!header) return;
+                const colHeader = String(header).trim();
+                // Exclude known columns: 0 (Name), 1 (SIREN), 2-8 (Mapped), 9 (Autre)
+                const isKnown = idx === 0 || idx === 1 || columnMapping[idx] || idx === 9;
+                if (!isKnown) {
+                    skippedRows.unmappedColumns.push({ index: idx, name: colHeader });
+                }
+            });
 
             for (let r = 1; r < jsonData.length; r++) {
                 // Update percentage for user feedback
@@ -1307,6 +1407,13 @@ async function handleExcelImport(e) {
                             );
 
                             if (matchedProduct) {
+                                // Check for Pennylane ID
+                                if (!matchedProduct.pennylane_id) {
+                                    if (!skippedRows.missingPennylaneId.some(m => m.id === matchedProduct.id)) {
+                                        skippedRows.missingPennylaneId.push({ id: matchedProduct.id, label: matchedProduct.label });
+                                    }
+                                }
+
                                 rowValid = true;
                                 const rate = await getRate(matchedCustomer.id, matchedProduct.id);
                                 itemsToAdd.push({
@@ -1325,6 +1432,11 @@ async function handleExcelImport(e) {
                                     isStandard: rate.isStandard,
                                     rowNum: rowNum
                                 });
+                            } else {
+                                // Product in mapping but NOT in state.products (DB)
+                                if (!skippedRows.missingProductInDb.includes(label)) {
+                                    skippedRows.missingProductInDb.push(label);
+                                }
                             }
                         }
                     }
@@ -1542,6 +1654,45 @@ async function handleExcelImport(e) {
                 </div>`;
             }
 
+            // CRITICAL SECTION: Missing Products or Columns
+            if (skippedRows.unmappedColumns.length > 0 || skippedRows.missingProductInDb.length > 0 || skippedRows.missingPennylaneId.length > 0) {
+                let alertItems = [];
+                
+                if (skippedRows.unmappedColumns.length > 0) {
+                    alertItems.push(`
+                        <div class="summary-sub-item">
+                            <div class="sub-reason" style="color: var(--color-danger); font-weight: bold;">Colonnes Excel ignorées (Non configurées)</div>
+                            <div class="sub-lines" style="font-size: 0.8rem;">Colonnes : ${skippedRows.unmappedColumns.map(c => `"${c.name}" (Col:${c.index+1})`).join(', ')}<br><small>Ces colonnes ne sont pas reliées à un produit dans l'application.</small></div>
+                        </div>`);
+                }
+
+                if (skippedRows.missingProductInDb.length > 0) {
+                    alertItems.push(`
+                        <div class="summary-sub-item">
+                            <div class="sub-reason" style="color: var(--color-danger); font-weight: bold;">Produits manquants en base de données</div>
+                            <div class="sub-lines" style="font-size: 0.8rem;">Labels : ${skippedRows.missingProductInDb.join(', ')}<br><small>Ces produits sont configurés dans l'outil mais introuvables sur Supabase.</small></div>
+                        </div>`);
+                }
+
+                if (skippedRows.missingPennylaneId.length > 0) {
+                    alertItems.push(`
+                        <div class="summary-sub-item">
+                            <div class="sub-reason" style="color: var(--color-danger); font-weight: bold;">Produits sans ID Pennylane (Indispensable)</div>
+                            <div class="sub-lines" style="font-size: 0.8rem;">Produits : ${skippedRows.missingPennylaneId.map(p => p.label).join(', ')}<br><small>Impossible de facturer ces produits tant qu'ils n'ont pas d'identifiant Pennylane.</small></div>
+                        </div>`);
+                }
+
+                msg += `<div class="summary-item warning" style="border-left-color: var(--color-warning); background: rgba(245, 158, 11, 0.05);">
+                    <div class="summary-icon" style="color: var(--color-warning);"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                    <div class="summary-content">
+                        <strong style="color: var(--color-warning);">ALERTE CONFIGURATION PRODUITS</strong>
+                        <div class="summary-sub-container">
+                            ${alertItems.join('')}
+                        </div>
+                    </div>
+                </div>`;
+            }
+
             // Ignored Rows Analysis
             const groupPurelyEmpty = skippedRows.purelyEmpty.sort((a,b) => a-b);
             const groupTextRecognized = skippedRows.textualRecognized.filter(m => !successfulRowNums.includes(m.row)).map(m => m.row).sort((a,b) => a-b);
@@ -1620,3 +1771,293 @@ function showToast() {
 
 // Start
 document.addEventListener('DOMContentLoaded', init);
+/**
+ * HISTORY & BACKUP SYSTEM
+ */
+function initHistory() {
+    if (dom.historyBtn) {
+        dom.historyBtn.addEventListener('click', async () => {
+            dom.historyModal.classList.remove('hidden');
+            await renderHistory();
+        });
+    }
+
+    if (dom.historyCloseBtn) {
+        dom.historyCloseBtn.addEventListener('click', () => {
+            dom.historyModal.classList.add('hidden');
+        });
+    }
+}
+
+async function renderHistory() {
+    dom.historyListContainer.innerHTML = '<div style="text-align: center; padding: 2rem; color: var(--color-text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> Chargement de l\'historique...</div>';
+
+    try {
+        const { data, error } = await supabaseClient
+            .from('invoice_logs')
+            .select('*, customers(name)')
+            .order('sent_at', { ascending: false })
+            .limit(50);
+
+        if (error) throw error;
+
+        if (!data || data.length === 0) {
+            dom.historyListContainer.innerHTML = '<div style="text-align: center; padding: 2rem; color: var(--color-text-muted);">Aucun historique trouvé.</div>';
+            return;
+        }
+
+        dom.historyListContainer.innerHTML = '';
+        data.forEach(entry => {
+            const dateStr = new Date(entry.sent_at || Date.now()).toLocaleString('fr-FR');
+            const customerName = entry.customers?.name || 'Client inconnu';
+            const totalHtNum = entry.total_ht || 0;
+            const totalHt = totalHtNum.toLocaleString('fr-FR', { minimumFractionDigits: 2 });
+            const hasPayload = entry.payload && Array.isArray(entry.payload) && entry.payload.length > 0;
+            const numLines = hasPayload ? entry.payload.length : '?';
+            
+            const entryEl = document.createElement('div');
+            entryEl.className = 'summary-item success';
+            entryEl.style.marginBottom = '12px';
+            entryEl.style.cursor = 'default';
+            
+            entryEl.innerHTML = `
+                <div class="summary-icon"><i class="fa-solid fa-file-invoice-dollar"></i></div>
+                <div class="summary-content" style="width: 100%;">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; width: 100%;">
+                        <div>
+                            <strong>${customerName}</strong>
+                            <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 2px;">
+                                <i class="fa-solid fa-calendar-day" style="font-size: 0.7rem;"></i> ${dateStr} • ${numLines} prestation(s)
+                            </div>
+                        </div>
+                        <div style="text-align: right;">
+                            <div style="font-weight: 800; color: var(--color-primary); font-size: 1rem;">${totalHt} € HT</div>
+                            <div style="font-size: 0.7rem; text-transform: uppercase; opacity: 0.7; color: var(--color-success);">
+                                 <i class="fa-solid fa-circle-check"></i> Envoyé
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="history-actions" style="margin-top: 10px; padding-top: 8px; border-top: 1px dashed rgba(255,255,255,0.1); display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            ${hasPayload ? `
+                                <button class="btn btn-secondary btn-sm restore-history-btn" style="padding: 6px 12px; font-size: 0.8rem; border-radius: 8px; background: rgba(var(--color-primary-rgb), 0.1); color: var(--color-primary); border: 1px solid rgba(var(--color-primary-rgb), 0.2);">
+                                    <i class="fa-solid fa-rotate-left"></i> Restaurer dans le panier
+                                </button>
+                            ` : ''}
+                        </div>
+                        <div>
+                            ${hasPayload ? `
+                                <button class="btn btn-secondary btn-sm export-history-btn" style="padding: 6px 12px; font-size: 0.8rem; border-radius: 8px; background: rgba(255,255,255,0.05);">
+                                    <i class="fa-solid fa-file-excel" style="color: #10b981;"></i> Excel
+                                </button>
+                            ` : `
+                                <span style="font-size: 0.75rem; color: var(--color-text-muted); font-style: italic;">
+                                    <i class="fa-solid fa-info-circle"></i> Pas de backup disponible
+                                </span>
+                            `}
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Add Event Listeners
+            const exportBtn = entryEl.querySelector('.export-history-btn');
+            if (exportBtn) {
+                exportBtn.addEventListener('click', () => {
+                    exportHistoryToExcel(entry, customerName, dateStr);
+                });
+            }
+
+            const restoreBtn = entryEl.querySelector('.restore-history-btn');
+            if (restoreBtn) {
+                restoreBtn.addEventListener('click', () => {
+                    restoreHistoryToCart(entry);
+                });
+            }
+
+            dom.historyListContainer.appendChild(entryEl);
+        });
+
+    } catch (err) {
+        console.error('History fetch error:', err);
+        dom.historyListContainer.innerHTML = `<div style="text-align: center; padding: 2rem; color: var(--color-danger);">Erreur lors du chargement : ${err.message}</div>`;
+    }
+}
+
+function exportHistoryToExcel(entry, customerName, dateStr) {
+    if (!entry.payload || !Array.isArray(entry.payload)) {
+        alert("Aucun détail (payload) n'a été trouvé pour cet envoi. Impossible de générer le fichier Excel.");
+        return;
+    }
+
+    // Transform payload to Excel format
+    const excelData = entry.payload.map(line => ({
+        "Client": customerName,
+        "Produit": line.produit_nom,
+        "Quantité": line.quantite,
+        "Prix Unitaire HT": line.prix_unitaire_ht,
+        "TVA (%)": line.tva,
+        "Type": line.is_exceptional ? "Exceptionnel" : "Standard",
+        "Date Envoi": dateStr
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(excelData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Backup Facturation");
+
+    // Generate FileName: Backup_Client_Date_Heure.xlsx
+    const safeName = customerName.replace(/[^a-z0-9]/gi, '_');
+    const safeDate = dateStr.replace(/[\/:]/g, '-').replace(' ', '_');
+    const fileName = `Backup_${safeName}_${safeDate}.xlsx`;
+
+    XLSX.writeFile(workbook, fileName);
+}
+
+async function restoreHistoryToCart(entry) {
+    if (!entry.payload || !Array.isArray(entry.payload)) return;
+
+    // Fermer la modal d'historique AVANT de montrer la confirmation (pour plus de fluidité)
+    dom.historyModal.classList.add('hidden');
+
+    const confirmRestore = await showConfirmModal(
+        "Restaurer l'envoi ?",
+        `Voulez-vous restaurer les <strong>${entry.payload.length} prestation(s)</strong> de cet envoi dans votre panier actuel ?<br><small>Note: Les prix appliqués seront ceux de l'époque de l'envoi.</small>`,
+        "Oui, restaurer",
+        "Annuler"
+    );
+
+    if (!confirmRestore) {
+        // Optionnel: rouvrir la modal historique si on annule ? 
+        // L'utilisateur pourra toujours recliquer sur le bouton historique.
+        return;
+    }
+
+    const customerId = entry.customer_id;
+    const customerName = entry.customers?.name || 'Client Inconnu';
+
+    const itemsToRestore = entry.payload.map(line => {
+        const qty = parseFloat(line.quantite);
+        const puHt = parseFloat(line.prix_unitaire_ht);
+        const tva = parseFloat(line.tva);
+        
+        return {
+            id: String(Date.now() + Math.random()),
+            customerId: customerId,
+            customerName: customerName,
+            productId: line.product_id, // Might be undefined for very old logs, handles below
+            productName: line.produit_nom,
+            quantity: qty,
+            unitPriceHt: puHt,
+            unitPriceTva: tva,
+            unitPriceTtc: puHt + tva,
+            totalPriceHt: puHt * qty,
+            totalPriceTva: tva * qty,
+            totalPriceTtc: (puHt + tva) * qty,
+            isStandard: line.is_standard ?? true,
+            isExceptional: line.is_exceptional ?? false,
+            rowNum: 'Backup'
+        };
+    });
+
+    // Option: replace current cart or append? Let's ask via a simplified choice or just append
+    // For now, let's Append to be safe, but notify
+    state.cart = [...state.cart, ...itemsToRestore];
+    
+    dom.historyModal.classList.add('hidden');
+    renderCart();
+    showToast("Éléments restaurés dans le panier !");
+    
+    // Auto-save will trigger via renderCart()
+}
+
+/**
+ * AUTO-SAVE (DRAFTS) SYSTEM
+ */
+function triggerAutoSave() {
+    if (state.autoSaveTimer) clearTimeout(state.autoSaveTimer);
+    state.autoSaveTimer = setTimeout(() => {
+        saveDraftToSupabase();
+    }, 3000); // Attendre 3 secondes de calme avant de sauvegarder
+}
+
+async function saveDraftToSupabase() {
+    if (!supabaseClient || state.cart.length === 0) return;
+
+    try {
+        const { data: { user } } = await supabaseClient.auth.getUser();
+        if (!user) {
+            console.warn('Auto-save skipped: User not authenticated');
+            return;
+        }
+
+        console.log(`[Auto-save] Tentative de sauvegarde de ${state.cart.length} lignes...`);
+        
+        const { error } = await supabaseClient
+            .from('drafts')
+            .upsert({ 
+                user_id: user.id, 
+                content: state.cart,
+                updated_at: new Date().toISOString()
+            }, { onConflict: 'user_id' });
+
+        if (error) {
+            console.error('[Auto-save] Erreur Supabase:', error.message, error.details);
+        } else {
+            console.log('[Auto-save] Brouillon synchronisé avec succès sur Supabase.');
+        }
+    } catch (err) {
+        console.error('[Auto-save] Exception fatale:', err);
+    }
+}
+
+async function checkAndRestoreDraft() {
+    try {
+        const { data: { user } } = await supabaseClient.auth.getUser();
+        if (!user) return;
+
+        const { data, error } = await supabaseClient
+            .from('drafts')
+            .select('content')
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+        if (error) throw error;
+
+        if (data && data.content && data.content.length > 0) {
+            // UI custom confirmation instead of browser confirm
+            const result = await showConfirmModal(
+                "Session restaurée", 
+                `Une session non terminée avec <strong>${data.content.length} prestation(s)</strong> a été trouvée. Souhaitez-vous restaurer votre travail ?`,
+                "Restaurer mon travail",
+                "Repartir à zéro"
+            );
+
+            if (result) {
+                state.cart = data.content;
+                renderCart();
+                showToast("Travail restauré avec succès !");
+            } else {
+                await deleteDraft();
+            }
+        }
+    } catch (err) {
+        console.warn('Erreur lors de la vérification du brouillon:', err);
+    }
+}
+
+async function deleteDraft() {
+    try {
+        const { data: { user } } = await supabaseClient.auth.getUser();
+        if (!user) return;
+
+        await supabaseClient
+            .from('drafts')
+            .delete()
+            .eq('user_id', user.id);
+            
+        console.log('Brouillon nettoyé.');
+    } catch (err) {
+        console.warn('Erreur lors du nettoyage du brouillon:', err);
+    }
+}
